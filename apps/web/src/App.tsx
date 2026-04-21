@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { tracks, type Level, type Track, type ValidatorKey } from './gameData';
 
 type Screen = 'landing' | 'routes' | 'map' | 'lesson';
@@ -22,9 +22,67 @@ const initialCodeByLesson = Object.fromEntries(
 
 const statCards = [
   { label: 'Lecciones activas', value: '2 rutas' },
-  { label: 'Tiempo de mision', value: '3 a 5 min' },
+  { label: 'Tiempo de misión', value: '3 a 5 min' },
   { label: 'Modo actual', value: 'Demo navegable' },
 ];
+
+const mapNodeSlots = [
+  { left: '8%', top: '20%' },
+  { left: '23%', top: '34%' },
+  { left: '38%', top: '50%' },
+  { left: '54%', top: '38%' },
+  { left: '69%', top: '20%' },
+  { left: '84%', top: '34%' },
+  { left: '96%', top: '20%' },
+];
+
+let audioContextInstance: AudioContext | null = null;
+
+function playUiTapSound() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const AudioContextCtor =
+    window.AudioContext ||
+    (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+  if (!AudioContextCtor) {
+    return;
+  }
+
+  if (!audioContextInstance) {
+    audioContextInstance = new AudioContextCtor();
+  }
+
+  if (audioContextInstance.state === 'suspended') {
+    void audioContextInstance.resume();
+  }
+
+  const startAt = audioContextInstance.currentTime;
+  const oscillator = audioContextInstance.createOscillator();
+  const gain = audioContextInstance.createGain();
+  const filter = audioContextInstance.createBiquadFilter();
+
+  oscillator.type = 'triangle';
+  oscillator.frequency.setValueAtTime(420, startAt);
+  oscillator.frequency.exponentialRampToValueAtTime(620, startAt + 0.04);
+  oscillator.frequency.exponentialRampToValueAtTime(300, startAt + 0.12);
+
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(1400, startAt);
+
+  gain.gain.setValueAtTime(0.0001, startAt);
+  gain.gain.exponentialRampToValueAtTime(0.018, startAt + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.14);
+
+  oscillator.connect(filter);
+  filter.connect(gain);
+  gain.connect(audioContextInstance.destination);
+
+  oscillator.start(startAt);
+  oscillator.stop(startAt + 0.14);
+}
 
 function getTrack(trackId: string): Track {
   return tracks.find((track) => track.id === trackId) ?? tracks[0];
@@ -70,14 +128,14 @@ function validateLesson(validator: ValidatorKey, code: string): RunResult {
           success: true,
           title: 'Canal estable',
           detail:
-            'La consola respondio correctamente. La primera mision de Python queda completada.',
+            'La consola respondió correctamente. La primera misión de Python queda completada.',
           stdout: 'Hola, Codebreaker',
         }
       : {
           success: false,
-          title: 'Senal incompleta',
+          title: 'Señal incompleta',
           detail:
-            'Todavia falta enviar el mensaje a la salida estandar. Revisa print(...) y vuelve a ejecutar.',
+            'Todavía falta enviar el mensaje a la salida estándar. Revisa print(...) y vuelve a ejecutar.',
           stdout: '',
         };
   }
@@ -92,14 +150,14 @@ function validateLesson(validator: ValidatorKey, code: string): RunResult {
         success: true,
         title: 'Puerto conectado',
         detail:
-          'La salida del backend respondio como se esperaba. La mision inicial de PHP queda completada.',
+          'La salida del backend respondió como se esperaba. La misión inicial de PHP queda completada.',
         stdout: 'Hola, Codebreaker',
       }
     : {
         success: false,
-        title: 'Respuesta vacia',
+        title: 'Respuesta vacía',
         detail:
-          'Todavia no se esta mostrando el mensaje. Usa echo para enviar la salida correcta.',
+          'Todavía no se está mostrando el mensaje. Usa echo para enviar la salida correcta.',
         stdout: '',
       };
 }
@@ -114,9 +172,20 @@ export default function App() {
   );
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [revealedHints, setRevealedHints] = useState<string[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState(true);
 
   const activeTrack = getTrack(selectedTrackId);
   const activeLesson = lessonCatalog[activeLessonId] ?? activeTrack.levels[0];
+  const currentLesson = getCurrentLesson(activeTrack, completedLessons);
+  const currentLevelIndex = Math.max(
+    activeTrack.levels.findIndex((level) => level.id === currentLesson.id),
+    0,
+  );
+  const mascotSlot = mapNodeSlots[currentLevelIndex] ?? mapNodeSlots[0];
+  const mascotStyle = {
+    left: mascotSlot.left,
+    top: `calc(${mascotSlot.top} + 86px)`,
+  } as CSSProperties;
   const missionProgress = Math.round(
     (completedLessons.filter((lessonId) =>
       activeTrack.levels.some((level) => level.id === lessonId),
@@ -124,6 +193,30 @@ export default function App() {
       activeTrack.levels.length) *
       100,
   );
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      if (!soundEnabled) {
+        return;
+      }
+
+      const target = event.target;
+
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      if (target.closest('button')) {
+        playUiTapSound();
+      }
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [soundEnabled]);
 
   function handleTrackSelection(trackId: Track['id']) {
     const track = getTrack(trackId);
@@ -181,7 +274,7 @@ export default function App() {
             <img alt="Codebreaker" className="brand-logo" src="/logo.png" />
             <span>
               <strong>Codebreaker</strong>
-              <small>Academia de codigo</small>
+              <small>Academia de código</small>
             </span>
           </button>
 
@@ -195,6 +288,13 @@ export default function App() {
             <button onClick={() => handleTrackSelection(selectedTrackId)} type="button">
               Mapa
             </button>
+            <button
+              className="sound-toggle"
+              onClick={() => setSoundEnabled((current) => !current)}
+              type="button"
+            >
+              {soundEnabled ? 'Sonido activado' : 'Sonido desactivado'}
+            </button>
           </nav>
         </header>
 
@@ -203,10 +303,10 @@ export default function App() {
             <div className="hero-layout">
               <div className="hero-copy-block">
                 <span className="eyebrow">Primera experiencia navegable</span>
-                <h1>Aprende programacion como si fuera una mision espacial.</h1>
+                <h1>Aprende programación como si fuera una misión espacial.</h1>
                 <p className="hero-text">
-                  Codebreaker combina rutas, niveles, practica guiada y progreso
-                  visual en una interfaz pensada para escritorio y movil.
+                  Codebreaker combina rutas, niveles, práctica guiada y progreso
+                  visual en una interfaz pensada para escritorio y móvil.
                 </p>
 
                 <div className="hero-actions">
@@ -237,10 +337,10 @@ export default function App() {
               </div>
 
               <aside className="hero-panel">
-                <div className="mission-chip">Sesion demo</div>
+                <div className="mission-chip">Sesión demo</div>
                 <h2>Ruta recomendada</h2>
                 <p>
-                  Python Orbit abre con una mision corta de salida en consola y
+                  Python Orbit abre con una misión corta de salida en consola y
                   muestra el ciclo completo: elegir ruta, abrir nivel, escribir,
                   ejecutar y completar.
                 </p>
@@ -250,7 +350,7 @@ export default function App() {
                     <article
                       className="route-preview"
                       key={track.id}
-                      style={{ '--track-accent': track.accent } as React.CSSProperties}
+                      style={{ '--track-accent': track.accent } as CSSProperties}
                     >
                       <div className="route-mark">{track.icon}</div>
                       <div>
@@ -269,10 +369,10 @@ export default function App() {
           <section className="screen">
             <div className="section-heading">
               <div>
-                <span className="eyebrow">Seleccion de ruta</span>
+                <span className="eyebrow">Selección de ruta</span>
                 <h2>Elige tu ruta de entrenamiento</h2>
                 <p>
-                  Cada ruta tiene su propio mapa, tono visual y primera mision
+                  Cada ruta tiene su propio mapa, tono visual y primera misión
                   interactiva.
                 </p>
               </div>
@@ -291,7 +391,7 @@ export default function App() {
                     style={{
                       '--track-accent': track.accent,
                       '--track-glow': track.glow,
-                    } as React.CSSProperties}
+                    } as CSSProperties}
                   >
                     <div className="route-card-top">
                       <div className="route-icon">{track.icon}</div>
@@ -302,9 +402,9 @@ export default function App() {
                     <p className="route-summary">{track.summary}</p>
 
                     <ul className="route-meta">
-                      <li>Primera mision jugable lista</li>
+                      <li>Primera misión jugable lista</li>
                       <li>Mapa secuencial de progreso</li>
-                      <li>Disenado para movil y escritorio</li>
+                      <li>Diseñado para móvil y escritorio</li>
                     </ul>
 
                     <button
@@ -339,7 +439,7 @@ export default function App() {
                   onClick={() => handleOpenLesson(getCurrentLesson(activeTrack, completedLessons).id)}
                   type="button"
                 >
-                  Abrir mision actual
+                  Abrir misión actual
                 </button>
               </div>
             </div>
@@ -377,25 +477,95 @@ export default function App() {
               </aside>
 
               <div className="map-panel panel-surface">
-                <div className="level-path">
-                  {activeTrack.levels.map((level) => {
+                <div className="map-panel-scroll">
+                  <div className="orbit-map">
+                  <div className="orbit-glow orbit-glow-a" />
+                  <div className="orbit-glow orbit-glow-b" />
+                  <div className="orbit-planet" />
+                  <div className="orbit-stars" />
+
+                  <svg
+                    aria-hidden="true"
+                    className="orbit-path-svg"
+                    viewBox="0 0 1400 540"
+                  >
+                    <path
+                      d="M110 165 C245 78, 300 255, 458 220 S 612 358, 770 274 S 935 84, 1084 150 S 1238 276, 1342 164"
+                      pathLength="100"
+                    />
+                  </svg>
+
+                  <div className="orbit-ridge orbit-ridge-back" />
+                  <div className="orbit-ridge orbit-ridge-mid" />
+                  <div className="orbit-ridge orbit-ridge-front" />
+
+                  <div className="map-mascot" style={mascotStyle}>
+                    <div className="map-mascot-antenna" />
+                    <div className="map-mascot-head">
+                      <div className="map-mascot-screen">
+                        <span className="map-mascot-eye" />
+                        <span className="map-mascot-eye" />
+                      </div>
+                    </div>
+                    <div className="map-mascot-neck" />
+                    <div className="map-mascot-body">
+                      <span className="map-mascot-core" />
+                    </div>
+                    <div className="map-mascot-legs">
+                      <span />
+                      <span />
+                    </div>
+                    <div className="map-mascot-shadow" />
+                  </div>
+
+                  {mapNodeSlots.map((slot, index) => {
+                    const level = activeTrack.levels[index];
+
+                    if (!level) {
+                      return (
+                        <div
+                          className="floating-level floating-level-future"
+                          key={`future-${slot.left}-${slot.top}`}
+                          style={slot as CSSProperties}
+                        >
+                          <div className="floating-badge floating-badge-locked">?</div>
+                          <div className="floating-card floating-card-locked">
+                            <span>Sector futuro</span>
+                          </div>
+                          <div className="floating-platform" />
+                        </div>
+                      );
+                    }
+
                     const state = getLevelState(activeTrack, level, completedLessons);
                     const isAccessible = state !== 'locked';
 
                     return (
                       <button
-                        className={`level-node level-node-${state}`}
+                        className={`floating-level floating-level-${state}`}
                         key={level.id}
                         onClick={() => isAccessible && handleOpenLesson(level.id)}
+                        style={slot as CSSProperties}
                         type="button"
                       >
-                        <span className="level-order">0{level.order}</span>
-                        <strong>{level.title}</strong>
-                        <small>{level.subtitle}</small>
-                        <em>{state === 'completed' ? 'Completado' : state === 'current' ? 'Actual' : 'Bloqueado'}</em>
+                        <div className={`floating-badge floating-badge-${state}`}>
+                          {level.order}
+                        </div>
+                        <div className={`floating-card floating-card-${state}`}>
+                          <strong>{level.title}</strong>
+                          <span>
+                            {state === 'completed'
+                              ? 'Listo'
+                              : state === 'current'
+                                ? 'Jugar ahora'
+                                : 'Bloqueado'}
+                          </span>
+                        </div>
+                        <div className="floating-platform" />
                       </button>
                     );
                   })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -406,7 +576,7 @@ export default function App() {
           <section className="screen lesson-screen">
             <div className="section-heading split-heading lesson-heading">
               <div>
-                <span className="eyebrow">Primera leccion jugable</span>
+                <span className="eyebrow">Primera lección jugable</span>
                 <h2>{activeLesson.title}</h2>
                 <p>{activeLesson.story}</p>
               </div>
@@ -452,7 +622,7 @@ export default function App() {
 
                   <div className="hint-list">
                     {revealedHints.length === 0 && (
-                      <p>Aun no has usado pistas en esta mision.</p>
+                      <p>Aún no has usado pistas en esta misión.</p>
                     )}
                     {revealedHints.map((hint) => (
                       <article className="hint-item" key={hint}>
@@ -484,10 +654,10 @@ export default function App() {
                 <div className="result-panel">
                   <div>
                     <span className="brief-label">Resultado</span>
-                    <strong>{runResult?.title ?? 'Esperando ejecucion'}</strong>
+                    <strong>{runResult?.title ?? 'Esperando ejecución'}</strong>
                   </div>
 
-                  <p>{runResult?.detail ?? 'Ejecuta la prueba para validar tu solucion.'}</p>
+                  <p>{runResult?.detail ?? 'Ejecuta la prueba para validar tu solución.'}</p>
 
                   <div className={`stdout-box ${runResult?.success ? 'stdout-success' : ''}`}>
                     <span>stdout</span>
