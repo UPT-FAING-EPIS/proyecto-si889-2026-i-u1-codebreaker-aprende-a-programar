@@ -259,6 +259,7 @@ function validatorIsBoss(validator: ValidatorKey) {
 }
 
 export default function App() {
+  const logoSrc = `${import.meta.env.BASE_URL}logo.png`;
   const [screen, setScreen] = useState<Screen>('landing');
   const [selectedTrackId, setSelectedTrackId] = useState<Track['id']>('python');
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
@@ -473,7 +474,7 @@ export default function App() {
       <div className="app-frame">
         <header className="topbar">
           <button className="brand" onClick={() => setScreen('landing')} type="button">
-            <img alt="Codebreaker" className="brand-logo" src="/logo.png" />
+            <img alt="Codebreaker" className="brand-logo" src={logoSrc} />
             <span>
               <strong>Codebreaker</strong>
               <small>Academia de código</small>
@@ -520,7 +521,7 @@ export default function App() {
             <div className="hero-layout">
               <div className="hero-copy-block">
                 <span className="eyebrow">Primera experiencia navegable</span>
-                <h1>Aprende programación como si fuera una misión espacial.</h1>
+                <h1>Aprende programacion como si fuera una mision espacial.</h1>
                 <p className="hero-text">
                   Codebreaker combina rutas, niveles, práctica guiada y progreso
                   visual en una interfaz pensada para escritorio y móvil.
