@@ -15,6 +15,8 @@
   --cyan: #4ce2ff;
   --amber: #ffb451;
   --violet: #8f7dff;
+  --danger: #ff6b78;
+  --success: #49e7a8;
 }
 
 * {
@@ -26,6 +28,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: transparent;
+  overflow-x: hidden;
 }
 
 button,
@@ -74,6 +77,33 @@ ul {
 .app-shell {
   min-height: 100vh;
   padding: 24px;
+  position: relative;
+}
+
+.app-shell::before,
+.app-shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.app-shell::before {
+  background:
+    radial-gradient(circle at 12% 18%, rgba(76, 226, 255, 0.18), transparent 18%),
+    radial-gradient(circle at 84% 20%, rgba(143, 125, 255, 0.18), transparent 20%),
+    radial-gradient(circle at 50% 85%, rgba(255, 167, 79, 0.12), transparent 18%);
+  filter: blur(20px);
+  animation: shell-pulse 14s ease-in-out infinite;
+}
+
+.app-shell::after {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 78%);
+  opacity: 0.18;
 }
 
 .app-frame {
@@ -85,6 +115,8 @@ ul {
   backdrop-filter: blur(20px);
   box-shadow: 0 32px 120px rgba(0, 0, 0, 0.36);
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .topbar {
@@ -95,6 +127,31 @@ ul {
   padding: 18px 24px;
   border-bottom: 1px solid var(--panel-border);
   background: rgba(255, 255, 255, 0.02);
+}
+
+.ui-toast {
+  position: fixed;
+  top: 26px;
+  right: 26px;
+  z-index: 20;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 18, 32, 0.92);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  animation: toast-in 260ms ease;
+}
+
+.ui-toast-info {
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(76, 226, 255, 0.16);
+}
+
+.ui-toast-warning {
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(255, 107, 120, 0.22);
+}
+
+.ui-toast-success {
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(73, 231, 168, 0.18);
 }
 
 .brand {
@@ -147,6 +204,10 @@ ul {
 .ghost-button:hover {
   background: rgba(255, 255, 255, 0.11);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.sound-toggle {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
 }
 
 .screen {
@@ -435,11 +496,23 @@ h3 {
 .mission-list article,
 .brief-card,
 .stdout-box,
-.hint-item {
+.hint-item,
+.boss-sidebar-card {
   padding: 16px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.boss-sidebar-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.mission-list-boss {
+  box-shadow: 0 0 0 1px rgba(255, 107, 120, 0.18);
+  background: linear-gradient(180deg, rgba(255, 107, 120, 0.16), rgba(255, 255, 255, 0.03));
 }
 
 .map-panel {
@@ -480,6 +553,18 @@ h3 {
   background:
     radial-gradient(circle at 50% 16%, rgba(126, 230, 255, 0.1), transparent 22%),
     linear-gradient(180deg, #2d1ee4 0%, #4156f6 20%, #4a77ff 46%, #2b59b7 70%, #101a46 100%);
+}
+
+.orbit-map::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 0 3%, rgba(255, 255, 255, 0.05) 3% 3.6%, transparent 3.6% 100%),
+    linear-gradient(180deg, transparent 0 78%, rgba(0, 0, 0, 0.12) 100%);
+  background-size: 180px 100%, 100% 100%;
+  opacity: 0.3;
+  animation: stage-scan 16s linear infinite;
 }
 
 .orbit-glow,
@@ -806,6 +891,14 @@ h3 {
   transform: scale(1.08);
 }
 
+.floating-level-boss .floating-badge {
+  background: linear-gradient(180deg, #ffb15f, #ff5f7a);
+}
+
+.floating-level-boss .floating-card {
+  box-shadow: 0 0 0 1px rgba(255, 107, 120, 0.24), 0 12px 30px rgba(255, 93, 112, 0.18);
+}
+
 .floating-level-future {
   pointer-events: none;
 }
@@ -877,6 +970,323 @@ h3 {
   gap: 18px;
 }
 
+.boss-panel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(255, 108, 120, 0.18), rgba(81, 33, 124, 0.22) 45%, rgba(49, 101, 255, 0.18));
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.boss-panel-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 18px;
+  align-items: center;
+}
+
+.boss-kicker {
+  display: inline-flex;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff4ef;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.boss-copy p {
+  margin-bottom: 0;
+  color: rgba(255, 245, 250, 0.8);
+}
+
+.boss-subtitle {
+  display: block;
+  color: rgba(255, 237, 242, 0.72);
+}
+
+.boss-timer {
+  min-height: 116px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  animation: timer-pulse 2s ease-in-out infinite;
+}
+
+.boss-timer span,
+.boss-request-label {
+  color: rgba(255, 241, 245, 0.75);
+}
+
+.boss-timer strong {
+  display: block;
+  font-size: 2rem;
+}
+
+.boss-timer-danger {
+  box-shadow: 0 0 0 1px rgba(255, 107, 120, 0.28), 0 0 30px rgba(255, 87, 105, 0.18);
+}
+
+.boss-progress-track {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.boss-stage {
+  position: relative;
+  min-height: 280px;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 25%),
+    linear-gradient(180deg, rgba(17, 21, 48, 0.9), rgba(23, 11, 42, 0.96));
+}
+
+.boss-stage-aura,
+.boss-stage-grid,
+.boss-entity,
+.boss-stage-status {
+  position: absolute;
+}
+
+.boss-stage-aura {
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  filter: blur(24px);
+  opacity: 0.45;
+}
+
+.boss-stage-aura-left {
+  left: -40px;
+  top: 20px;
+  background: rgba(255, 95, 122, 0.26);
+}
+
+.boss-stage-aura-right {
+  right: -20px;
+  top: 10px;
+  background: rgba(89, 108, 255, 0.24);
+}
+
+.boss-stage-grid {
+  inset: auto 0 0;
+  height: 120px;
+  background-image:
+    linear-gradient(rgba(118, 225, 255, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(118, 225, 255, 0.14) 1px, transparent 1px);
+  background-size: 40px 24px;
+  transform: perspective(300px) rotateX(65deg);
+  transform-origin: bottom;
+  opacity: 0.5;
+}
+
+.boss-entity {
+  left: 50%;
+  top: 48%;
+  width: 210px;
+  height: 180px;
+  transform: translate(-50%, -50%);
+  animation: boss-float 2.8s ease-in-out infinite;
+}
+
+.boss-entity-python .boss-faceplate {
+  background: linear-gradient(180deg, #7e55ff, #37196c);
+}
+
+.boss-entity-php .boss-faceplate {
+  background: linear-gradient(180deg, #ff8e63, #6a2549);
+}
+
+.boss-crown {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: -10px;
+}
+
+.boss-crown span {
+  width: 26px;
+  height: 22px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: linear-gradient(180deg, #ffe07f, #ff7d59);
+}
+
+.boss-faceplate {
+  position: relative;
+  width: 146px;
+  height: 114px;
+  margin: 0 auto;
+  border-radius: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.24);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.boss-eye {
+  position: absolute;
+  top: 34px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #7cf7ff;
+  box-shadow: 0 0 16px rgba(124, 247, 255, 0.88);
+  animation: boss-eye-blink 4.8s ease-in-out infinite;
+}
+
+.boss-eye:first-child {
+  left: 42px;
+}
+
+.boss-eye:last-child {
+  right: 42px;
+}
+
+.boss-mouth {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  width: 54px;
+  height: 10px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.24), rgba(124, 247, 255, 0.95), rgba(255, 255, 255, 0.24));
+}
+
+.boss-core {
+  position: absolute;
+  left: 50%;
+  top: 76px;
+  width: 42px;
+  height: 42px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff, #7cf7ff 45%, #6077ff 70%, transparent 71%);
+  box-shadow: 0 0 26px rgba(124, 247, 255, 0.55);
+}
+
+.boss-core-ring {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 2px solid rgba(124, 247, 255, 0.38);
+  animation: core-ring 2.4s ease-out infinite;
+}
+
+.boss-core-ring-delayed {
+  animation-delay: 1.2s;
+}
+
+.boss-tentacles {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  justify-content: space-between;
+}
+
+.boss-tentacles span {
+  width: 22px;
+  height: 86px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(95, 115, 255, 0.96));
+  transform-origin: top center;
+  animation: tentacle-sway 2.6s ease-in-out infinite;
+}
+
+.boss-tentacles span:nth-child(2) {
+  animation-delay: 0.4s;
+}
+
+.boss-tentacles span:nth-child(3) {
+  animation-delay: 0.8s;
+}
+
+.boss-tentacles span:nth-child(4) {
+  animation-delay: 1.2s;
+}
+
+.boss-stage-status {
+  left: 24px;
+  right: 24px;
+  bottom: 18px;
+}
+
+.boss-health-track {
+  margin-top: 8px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.boss-health-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ff5f78, #ff9065);
+  box-shadow: 0 0 20px rgba(255, 95, 120, 0.34);
+  transition: width 260ms ease;
+}
+
+.boss-briefing-card {
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.boss-briefing-card p {
+  margin: 10px 0 8px;
+  color: rgba(255, 245, 250, 0.82);
+  line-height: 1.55;
+}
+
+.boss-briefing-card strong {
+  color: #ffd5db;
+}
+
+.boss-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ff7b7b, #ffd25f, #5dffcc);
+  box-shadow: 0 0 18px rgba(255, 215, 96, 0.24);
+  transition: width 220ms ease;
+}
+
+.boss-requests {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.boss-request {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: transform 180ms ease, background 220ms ease, box-shadow 220ms ease;
+}
+
+.boss-request strong {
+  display: block;
+  margin-top: 8px;
+}
+
+.boss-request-complete {
+  transform: translateY(-2px);
+  background: rgba(73, 231, 168, 0.16);
+  box-shadow: 0 0 0 1px rgba(73, 231, 168, 0.22);
+}
+
 .editor-header {
   display: flex;
   align-items: center;
@@ -937,6 +1347,31 @@ h3 {
   }
 }
 
+@keyframes shell-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes float-panel {
   0%,
   100% {
@@ -980,6 +1415,16 @@ h3 {
   }
 }
 
+@keyframes stage-scan {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(180px);
+  }
+}
+
 @keyframes route-dash {
   from {
     stroke-dashoffset: 0;
@@ -1011,6 +1456,64 @@ h3 {
 
   48% {
     transform: scaleY(0.2);
+  }
+}
+
+@keyframes timer-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.03);
+  }
+}
+
+@keyframes boss-float {
+  0%,
+  100% {
+    transform: translate(-50%, -50%);
+  }
+
+  50% {
+    transform: translate(-50%, calc(-50% - 10px));
+  }
+}
+
+@keyframes tentacle-sway {
+  0%,
+  100% {
+    transform: rotate(-10deg);
+  }
+
+  50% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes core-ring {
+  from {
+    transform: scale(0.7);
+    opacity: 0.7;
+  }
+
+  to {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+@keyframes boss-eye-blink {
+  0%,
+  44%,
+  50%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  47% {
+    transform: scaleY(0.15);
   }
 }
 
@@ -1051,6 +1554,11 @@ h3 {
   .topbar {
     align-items: start;
     flex-direction: column;
+  }
+
+  .boss-panel-top,
+  .boss-requests {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1099,6 +1607,12 @@ h3 {
   .primary-button {
     width: 100%;
     justify-content: center;
+  }
+
+  .ui-toast {
+    top: 14px;
+    right: 14px;
+    left: 14px;
   }
 
   h1 {

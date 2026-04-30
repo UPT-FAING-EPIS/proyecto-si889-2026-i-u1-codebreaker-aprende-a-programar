@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { tracks, type Level, type Track, type ValidatorKey } from './gameData';
 
 type Screen = 'landing' | 'routes' | 'map' | 'lesson';
@@ -8,6 +8,11 @@ type RunResult = {
   title: string;
   detail: string;
   stdout: string;
+};
+
+type UiToast = {
+  tone: 'info' | 'warning' | 'success';
+  message: string;
 };
 
 const lessonCatalog = Object.fromEntries(
@@ -114,10 +119,97 @@ function normalizeCode(code: string) {
   return code.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-function validateLesson(validator: ValidatorKey, code: string): RunResult {
+function validateLesson(
+  lesson: Level,
+  code: string,
+  bossTimeLeft: number | null,
+): RunResult {
   const normalizedCode = normalizeCode(code);
+  const requests = lesson.bossBattle?.requests ?? [];
 
-  if (validator === 'python-greeting') {
+  if (validatorIsBoss(lesson.validator)) {
+    if ((bossTimeLeft ?? 0) <= 0) {
+      return {
+        success: false,
+        title: 'Tiempo agotado',
+        detail:
+          'El jefe recuperó su escudo. Vuelve a intentarlo y responde las cadenas más rápido.',
+        stdout: '',
+      };
+    }
+
+    const missingRequests = requests.filter(
+      (request) => !normalizedCode.includes(request.toLowerCase()),
+    );
+    const hasOutputInstruction =
+      lesson.validator === 'python-boss-strings'
+        ? normalizedCode.includes('print')
+        : normalizedCode.includes('echo');
+
+    if (hasOutputInstruction && missingRequests.length === 0) {
+      return {
+        success: true,
+        title: 'Jefe neutralizado',
+        detail:
+          'Respondiste todas las cadenas del protocolo antes de que el temporizador llegara a cero.',
+        stdout: requests.join('\n'),
+      };
+    }
+
+    return {
+      success: false,
+      title: 'Cadena incompleta',
+      detail: missingRequests.length
+        ? `Todavía faltan estas respuestas: ${missingRequests.join(', ')}.`
+        : 'Tu código debe imprimir las cadenas del protocolo para romper el escudo.',
+      stdout: '',
+    };
+  }
+
+  if (lesson.validator === 'python-variable-output') {
+    const passed =
+      normalizedCode.includes('print(energia)') ||
+      normalizedCode.includes('print(80)');
+
+    return passed
+      ? {
+          success: true,
+          title: 'Energía estabilizada',
+          detail:
+            'La consola mostró el valor correcto de la variable y la siguiente etapa quedó desbloqueada.',
+          stdout: '80',
+        }
+      : {
+          success: false,
+          title: 'Salida incorrecta',
+          detail:
+            'Debes mostrar el valor almacenado en la variable energia para completar la misión.',
+          stdout: '',
+        };
+  }
+
+  if (lesson.validator === 'php-array-count') {
+    const passed =
+      normalizedCode.includes('count($modulos)') && normalizedCode.includes('echo');
+
+    return passed
+      ? {
+          success: true,
+          title: 'Conteo confirmado',
+          detail:
+            'El puerto ya conoce la cantidad de módulos activos y la etapa de jefe quedó disponible.',
+          stdout: '3',
+        }
+      : {
+          success: false,
+          title: 'Conteo pendiente',
+          detail:
+            'Debes imprimir la cantidad de elementos del arreglo $modulos.',
+          stdout: '',
+        };
+  }
+
+  if (lesson.validator === 'python-greeting') {
     const passed =
       normalizedCode.includes('print(mensaje)') ||
       normalizedCode.includes('print("hola, codebreaker")') ||
@@ -162,6 +254,10 @@ function validateLesson(validator: ValidatorKey, code: string): RunResult {
       };
 }
 
+function validatorIsBoss(validator: ValidatorKey) {
+  return validator === 'python-boss-strings' || validator === 'php-boss-strings';
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>('landing');
   const [selectedTrackId, setSelectedTrackId] = useState<Track['id']>('python');
@@ -173,10 +269,20 @@ export default function App() {
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [revealedHints, setRevealedHints] = useState<string[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [bossTimeLeft, setBossTimeLeft] = useState<number | null>(null);
+  const [uiToast, setUiToast] = useState<UiToast | null>(null);
+  const mapScrollRef = useRef<HTMLDivElement | null>(null);
 
   const activeTrack = getTrack(selectedTrackId);
   const activeLesson = lessonCatalog[activeLessonId] ?? activeTrack.levels[0];
   const currentLesson = getCurrentLesson(activeTrack, completedLessons);
+  const isBossLesson = activeLesson.kind === 'boss' && Boolean(activeLesson.bossBattle);
+  const activeBossBattle = activeLesson.bossBattle ?? null;
+  const activeCode = codeByLesson[activeLesson.id] ?? '';
+  const normalizedActiveCode = normalizeCode(activeCode);
+  const matchedBossRequests = (activeBossBattle?.requests ?? []).filter((request) =>
+    normalizedActiveCode.includes(request.toLowerCase()),
+  ).length;
   const currentLevelIndex = Math.max(
     activeTrack.levels.findIndex((level) => level.id === currentLesson.id),
     0,
@@ -193,6 +299,13 @@ export default function App() {
       activeTrack.levels.length) *
       100,
   );
+  const bossProgress = activeBossBattle
+    ? Math.round((matchedBossRequests / activeBossBattle.requests.length) * 100)
+    : 0;
+
+  function pushToast(message: string, tone: UiToast['tone']) {
+    setUiToast({ message, tone });
+  }
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -218,6 +331,90 @@ export default function App() {
     };
   }, [soundEnabled]);
 
+  useEffect(() => {
+    if (!uiToast) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setUiToast(null);
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [uiToast]);
+
+  useEffect(() => {
+    if (screen !== 'lesson' || !isBossLesson || !activeBossBattle) {
+      setBossTimeLeft(null);
+      return;
+    }
+
+    setBossTimeLeft(activeBossBattle.timeLimitSeconds);
+  }, [screen, activeLesson.id, isBossLesson, activeBossBattle]);
+
+  useEffect(() => {
+    if (
+      screen !== 'lesson' ||
+      !isBossLesson ||
+      !activeBossBattle ||
+      runResult?.success ||
+      bossTimeLeft === null ||
+      bossTimeLeft <= 0
+    ) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setBossTimeLeft((current) => {
+        if (current === null) {
+          return activeBossBattle.timeLimitSeconds;
+        }
+
+        return Math.max(current - 1, 0);
+      });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [screen, isBossLesson, activeBossBattle, bossTimeLeft, runResult?.success]);
+
+  useEffect(() => {
+    if (
+      screen === 'lesson' &&
+      isBossLesson &&
+      bossTimeLeft === 0 &&
+      !runResult?.success
+    ) {
+      setRunResult({
+        success: false,
+        title: 'Tiempo agotado',
+        detail:
+          'El jefe recuperó su escudo. Reinicia el intento y responde más rápido.',
+        stdout: '',
+      });
+      pushToast('El jefe restauró su escudo.', 'warning');
+    }
+  }, [screen, isBossLesson, bossTimeLeft, runResult?.success]);
+
+  useEffect(() => {
+    if (screen !== 'map' || !mapScrollRef.current) {
+      return;
+    }
+
+    const container = mapScrollRef.current;
+    const targetPercent = Number.parseFloat(mascotSlot.left) / 100;
+    const maxScroll = Math.max(container.scrollWidth - container.clientWidth, 0);
+    const nextScroll = Math.max(targetPercent * container.scrollWidth - container.clientWidth * 0.4, 0);
+
+    container.scrollTo({
+      left: Math.min(nextScroll, maxScroll),
+      behavior: 'smooth',
+    });
+  }, [screen, selectedTrackId, currentLevelIndex, mascotSlot.left]);
+
   function handleTrackSelection(trackId: Track['id']) {
     const track = getTrack(trackId);
     const nextLesson = getCurrentLesson(track, completedLessons);
@@ -227,6 +424,7 @@ export default function App() {
     setRunResult(null);
     setRevealedHints([]);
     setScreen('map');
+    pushToast(`Ruta ${track.name} lista para jugar.`, 'info');
   }
 
   function handleOpenLesson(levelId: string) {
@@ -234,6 +432,7 @@ export default function App() {
     setRunResult(null);
     setRevealedHints([]);
     setScreen('lesson');
+    pushToast('Misión cargada.', 'info');
   }
 
   function handleCodeChange(nextCode: string) {
@@ -244,16 +443,18 @@ export default function App() {
   }
 
   function handleRunLesson() {
-    const result = validateLesson(
-      activeLesson.validator,
-      codeByLesson[activeLesson.id] ?? '',
-    );
+    const result = validateLesson(activeLesson, activeCode, bossTimeLeft);
 
     setRunResult(result);
 
     if (result.success && !completedLessons.includes(activeLesson.id)) {
       setCompletedLessons((current) => [...current, activeLesson.id]);
     }
+
+    pushToast(
+      result.success ? 'Respuesta validada.' : 'Todavía falta ajustar la solución.',
+      result.success ? 'success' : 'warning',
+    );
   }
 
   function handleRevealHint() {
@@ -263,6 +464,7 @@ export default function App() {
 
     if (nextHint) {
       setRevealedHints((current) => [...current, nextHint]);
+      pushToast('Pista desbloqueada.', 'info');
     }
   }
 
@@ -290,13 +492,28 @@ export default function App() {
             </button>
             <button
               className="sound-toggle"
-              onClick={() => setSoundEnabled((current) => !current)}
+              onClick={() => {
+                setSoundEnabled((current) => {
+                  const nextValue = !current;
+                  pushToast(
+                    nextValue ? 'Sonido interactivo activado.' : 'Sonido interactivo desactivado.',
+                    'info',
+                  );
+                  return nextValue;
+                });
+              }}
               type="button"
             >
               {soundEnabled ? 'Sonido activado' : 'Sonido desactivado'}
             </button>
           </nav>
         </header>
+
+        {uiToast && (
+          <div className={`ui-toast ui-toast-${uiToast.tone}`}>
+            {uiToast.message}
+          </div>
+        )}
 
         {screen === 'landing' && (
           <section className="screen landing-screen">
@@ -405,6 +622,7 @@ export default function App() {
                       <li>Primera misión jugable lista</li>
                       <li>Mapa secuencial de progreso</li>
                       <li>Diseñado para móvil y escritorio</li>
+                      <li>{track.levels.some((level) => level.kind === 'boss') ? 'Incluye jefe con temporizador' : 'Ruta estándar'}</li>
                     </ul>
 
                     <button
@@ -459,25 +677,27 @@ export default function App() {
                 <div className="mission-list">
                   <article>
                     <span>Meta actual</span>
-                    <strong>{getCurrentLesson(activeTrack, completedLessons).title}</strong>
+                    <strong>{currentLesson.title}</strong>
                   </article>
                   <article>
                     <span>Recompensa</span>
-                    <strong>
-                      {getCurrentLesson(activeTrack, completedLessons).xp} XP
-                    </strong>
+                    <strong>{currentLesson.xp} XP</strong>
                   </article>
                   <article>
                     <span>Tiempo</span>
-                    <strong>
-                      {getCurrentLesson(activeTrack, completedLessons).duration}
-                    </strong>
+                    <strong>{currentLesson.duration}</strong>
                   </article>
+                  {currentLesson.kind === 'boss' && (
+                    <article className="mission-list-boss">
+                      <span>Alerta</span>
+                      <strong>Etapa de jefe lista</strong>
+                    </article>
+                  )}
                 </div>
               </aside>
 
               <div className="map-panel panel-surface">
-                <div className="map-panel-scroll">
+                <div className="map-panel-scroll" ref={mapScrollRef}>
                   <div className="orbit-map">
                   <div className="orbit-glow orbit-glow-a" />
                   <div className="orbit-glow orbit-glow-b" />
@@ -540,21 +760,29 @@ export default function App() {
                     const state = getLevelState(activeTrack, level, completedLessons);
                     const isAccessible = state !== 'locked';
 
+                    const isBossNode = level.kind === 'boss';
+
                     return (
                       <button
-                        className={`floating-level floating-level-${state}`}
+                        className={`floating-level floating-level-${state} ${isBossNode ? 'floating-level-boss' : ''}`}
                         key={level.id}
                         onClick={() => isAccessible && handleOpenLesson(level.id)}
                         style={slot as CSSProperties}
                         type="button"
                       >
                         <div className={`floating-badge floating-badge-${state}`}>
-                          {level.order}
+                          {isBossNode ? 'B' : level.order}
                         </div>
                         <div className={`floating-card floating-card-${state}`}>
                           <strong>{level.title}</strong>
                           <span>
-                            {state === 'completed'
+                            {isBossNode
+                              ? state === 'completed'
+                                ? 'Jefe derrotado'
+                                : state === 'current'
+                                  ? 'Combate activo'
+                                  : 'Jefe bloqueado'
+                              : state === 'completed'
                               ? 'Listo'
                               : state === 'current'
                                 ? 'Jugar ahora'
@@ -607,6 +835,14 @@ export default function App() {
                   <code>{activeLesson.expectedOutput}</code>
                 </div>
 
+                {isBossLesson && activeBossBattle && (
+                  <div className="boss-sidebar-card">
+                    <span className="brief-label">Etapa de jefe</span>
+                    <strong>{activeBossBattle.bossTitle}</strong>
+                    <p>{activeBossBattle.bossTaunt}</p>
+                  </div>
+                )}
+
                 <div className="concept-list">
                   {activeLesson.concepts.map((concept) => (
                     <span className="concept-chip" key={concept}>
@@ -643,6 +879,91 @@ export default function App() {
                   </div>
                   <span className="editor-language">{activeTrack.id}</span>
                 </div>
+
+                {isBossLesson && activeBossBattle && (
+                  <section className="boss-panel">
+                    <div className="boss-panel-top">
+                      <div className="boss-copy">
+                        <span className="boss-kicker">Etapa de jefe</span>
+                        <h3>{activeBossBattle.bossName}</h3>
+                        <span className="boss-subtitle">{activeBossBattle.bossTitle}</span>
+                      </div>
+
+                      <div className={`boss-timer ${bossTimeLeft !== null && bossTimeLeft <= 10 ? 'boss-timer-danger' : ''}`}>
+                        <span>Tiempo restante</span>
+                        <strong>{bossTimeLeft ?? activeBossBattle.timeLimitSeconds}s</strong>
+                      </div>
+                    </div>
+
+                    <div className="boss-stage">
+                      <div className="boss-stage-aura boss-stage-aura-left" />
+                      <div className="boss-stage-aura boss-stage-aura-right" />
+                      <div className="boss-stage-grid" />
+
+                      <div className={`boss-entity ${activeTrack.id === 'python' ? 'boss-entity-python' : 'boss-entity-php'}`}>
+                        <div className="boss-crown">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        <div className="boss-faceplate">
+                          <div className="boss-eye" />
+                          <div className="boss-eye" />
+                          <div className="boss-mouth" />
+                        </div>
+                        <div className="boss-core">
+                          <span className="boss-core-ring" />
+                          <span className="boss-core-ring boss-core-ring-delayed" />
+                        </div>
+                        <div className="boss-tentacles">
+                          <span />
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                      </div>
+
+                      <div className="boss-stage-status">
+                        <span className="boss-request-label">Integridad del enemigo</span>
+                        <div className="boss-health-track">
+                          <div
+                            className="boss-health-fill"
+                            style={{ width: `${Math.max(100 - bossProgress, 8)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="boss-briefing-card">
+                      <span className="boss-request-label">Enunciado</span>
+                      <p>{activeBossBattle.briefing}</p>
+                      <strong>{activeBossBattle.bossTaunt}</strong>
+                    </div>
+
+                    <div className="boss-progress-track">
+                      <div
+                        className="boss-progress-fill"
+                        style={{ width: `${bossProgress}%` }}
+                      />
+                    </div>
+
+                    <div className="boss-requests">
+                      {activeBossBattle.requests.map((request) => {
+                        const completed = normalizedActiveCode.includes(request.toLowerCase());
+
+                        return (
+                          <article
+                            className={`boss-request ${completed ? 'boss-request-complete' : ''}`}
+                            key={request}
+                          >
+                            <span className="boss-request-label">Cadena requerida</span>
+                            <strong>{request}</strong>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
 
                 <textarea
                   className="code-editor"
