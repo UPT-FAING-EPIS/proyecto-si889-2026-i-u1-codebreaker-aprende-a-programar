@@ -8,6 +8,7 @@
 
 - **Jefferson Rosas Chambilla**
 - **Roberto Huaman Rivera**
+- **Challo Coaquera Alexsander**
 
 ## 🎯 El Proyecto
 
