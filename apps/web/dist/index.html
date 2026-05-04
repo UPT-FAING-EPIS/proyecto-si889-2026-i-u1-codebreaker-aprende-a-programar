@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codebreaker</title>
+    <meta
+      name="description"
+      content="Codebreaker convierte el aprendizaje de programación en una aventura interactiva para navegador."
+    />
+    <script type="module" crossorigin src="/demo-subpath/assets/index-ChPuVtLr.js"></script>
+    <link rel="stylesheet" crossorigin href="/demo-subpath/assets/index-DdyGanwB.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      (function () {
+        const storageKey = 'codebreaker_visitor_id';
+        let visitorId = null;
+
+        try {
+          visitorId = window.localStorage.getItem(storageKey);
+          if (!visitorId) {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+              visitorId = window.crypto.randomUUID();
+            } else {
+              visitorId = 'v-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            }
+            window.localStorage.setItem(storageKey, visitorId);
+          }
+        } catch (_error) {
+          visitorId = null;
+        }
+
+        const payload = {
+          visitorId: visitorId,
+          page: window.location.pathname,
+          source: 'web-dist',
+        };
+
+        const urls = ['/api/analytics/visit', 'http://localhost:4000/api/analytics/visit'];
+
+        function sendVisit(index) {
+          if (index >= urls.length) {
+            return;
+          }
+          fetch(urls[index], {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            keepalive: true,
+          }).catch(function () {
+            sendVisit(index + 1);
+          });
+        }
+
+        sendVisit(0);
+      })();
+    </script>
+  </body>
+  </html>

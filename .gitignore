@@ -1,8 +1,21 @@
+# Dependencies
 node_modules/
+**/node_modules/
+
+# Build outputs
 dist/
-.env
-.env.local
-.DS_Store
-coverage/
 .vite/
 *.tsbuildinfo
+
+# Environment
+.env
+.env.local
+
+# System & IDE
+.DS_Store
+
+# Coverage & testing
+coverage/
+
+# Analytics store (generated at runtime)
+apps/api/dist/analytics-store.json
