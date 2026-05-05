@@ -34,7 +34,7 @@ jobs:
       - name: Build web for GitHub Pages
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
-          VITE_ANALYTICS_API_ORIGIN: ""
+          VITE_ANALYTICS_API_ORIGIN: https://fantastic-journey-4p94w7v6p9p3jjp5-4000.app.github.dev
         run: npm run build --workspace web
 
       - name: Upload Pages artifact
