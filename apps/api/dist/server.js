@@ -304,6 +304,9 @@ function adminHtml() {
 await server.register(cors, {
     origin: true,
 });
+server.get('/', async (request, reply) => {
+    return reply.redirect('/admin');
+});
 server.get('/health', async () => {
     return {
         name: 'codebreaker-api',
