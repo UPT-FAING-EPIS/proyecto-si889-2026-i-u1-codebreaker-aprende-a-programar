@@ -26,13 +26,51 @@ export type AuthResponse = {
 };
 
 export type AdminMetrics = {
+  filters: {
+    days: number;
+    search: string;
+  };
   totals: {
     users: number;
     visits: number;
     completions: number;
     totalXp: number;
+    activeUsers7d: number;
+    newUsers7d: number;
+    avgXpPerUser: number;
   };
   dailyVisits: Array<{ date: string; visits: number }>;
+  dailyCompletions: Array<{ date: string; completions: number }>;
+  dailyNewUsers: Array<{ date: string; users: number }>;
+  topLevels: Array<{ slug: string; title: string; completions: number; xpGenerated: number }>;
+  users: Array<{
+    id: number;
+    displayName: string;
+    email: string;
+    totalXp: number;
+    levelsCompleted: number;
+    lastActivityDate: string | null;
+    visitsInRange: number;
+  }>;
+};
+
+export type LeaderboardWindow = '7d' | '30d' | 'all';
+
+export type LeaderboardResponse = {
+  window: LeaderboardWindow;
+  limit: number;
+  generatedAt: string;
+  entries: Array<{
+    rank: number;
+    userId: number;
+    displayName: string;
+    email: string;
+    totalXp: number;
+    levelsCompleted: number;
+    xpInWindow: number;
+    completedInWindow: number;
+    currentStreakDays: number;
+  }>;
 };
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
@@ -72,6 +110,20 @@ async function request<T>(
   return response.json() as Promise<T>;
 }
 
+function buildQuery(params: Record<string, string | number | undefined>) {
+  const searchParams = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '') {
+      continue;
+    }
+    searchParams.set(key, String(value));
+  }
+
+  const query = searchParams.toString();
+  return query ? `?${query}` : '';
+}
+
 export async function loginWithGoogle(credential: string): Promise<AuthResponse> {
   return request<AuthResponse>('/api/auth/google', {
     method: 'POST',
@@ -106,8 +158,27 @@ export async function trackVisit(visitorId: string, token?: string) {
   });
 }
 
-export async function getAdminMetrics(token: string): Promise<AdminMetrics> {
-  return request<AdminMetrics>('/api/admin/metrics', {
+export async function getAdminMetrics(token: string, options?: { days?: number; search?: string }): Promise<AdminMetrics> {
+  const query = buildQuery({
+    days: options?.days,
+    search: options?.search,
+  });
+
+  return request<AdminMetrics>(`/api/admin/metrics${query}`, {
+    headers: buildHeaders(token, false),
+  });
+}
+
+export async function getAdminLeaderboard(
+  token: string,
+  options?: { window?: LeaderboardWindow; limit?: number },
+): Promise<LeaderboardResponse> {
+  const query = buildQuery({
+    window: options?.window,
+    limit: options?.limit,
+  });
+
+  return request<LeaderboardResponse>(`/api/admin/leaderboard${query}`, {
     headers: buildHeaders(token, false),
   });
 }

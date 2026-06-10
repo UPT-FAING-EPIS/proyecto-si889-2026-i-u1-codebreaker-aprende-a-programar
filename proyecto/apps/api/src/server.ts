@@ -34,6 +34,16 @@ type JwtPayload = {
   displayName: string;
 };
 
+function parsePositiveInt(value: unknown, fallback: number, max: number) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(Math.floor(parsed), max);
+}
+
 const levelSeeds = [
   { trackSlug: 'python', slug: 'python-1', title: 'Hola, Python', order: 1, xpReward: 10, difficulty: 'beginner', isBoss: 0 },
   { trackSlug: 'python', slug: 'python-2', title: 'Variables de energía', order: 2, xpReward: 15, difficulty: 'beginner', isBoss: 0 },
@@ -140,7 +150,7 @@ server.get('/', async () => {
     name: 'codebreaker-api',
     status: 'ok',
     message: 'API activa con progreso en MySQL, login y métricas.',
-    endpoints: ['/health', '/api/meta', '/api/auth/google', '/api/progress/me', '/api/admin/metrics'],
+    endpoints: ['/health', '/api/meta', '/api/auth/google', '/api/progress/me', '/api/admin/metrics', '/api/admin/leaderboard'],
   };
 });
 
@@ -376,32 +386,206 @@ server.get('/api/admin/metrics', async (request, reply) => {
     return reply.code(403).send({ message: 'Solo administradores.' });
   }
 
+  const query = request.query as { days?: string; search?: string } | undefined;
+  const days = parsePositiveInt(query?.days, 30, 180);
+  const search = (query?.search ?? '').trim();
+  const likeSearch = `%${search}%`;
+
   const [totalsRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
     `SELECT
       (SELECT COUNT(*) FROM users) AS usersCount,
       (SELECT COUNT(*) FROM visit_events) AS visitsCount,
       (SELECT COUNT(*) FROM user_level_progress WHERE status = 'completed') AS completionsCount,
-      (SELECT COALESCE(SUM(total_xp), 0) FROM user_stats) AS totalXp`,
+      (SELECT COALESCE(SUM(total_xp), 0) FROM user_stats) AS totalXp,
+      (SELECT COUNT(*) FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS newUsers7d,
+      (SELECT COUNT(DISTINCT user_id) FROM visit_events WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS activeUsers7d,
+      (SELECT COALESCE(AVG(total_xp), 0) FROM user_stats) AS avgXpPerUser`,
   );
 
-  const [dailyRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
+  const [dailyVisitsRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
     `SELECT DATE(created_at) AS date, COUNT(*) AS visits
      FROM visit_events
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
      GROUP BY DATE(created_at)
      ORDER BY DATE(created_at) DESC
-     LIMIT 30`,
+     LIMIT ?`,
+    [days, days],
+  );
+
+  const [dailyCompletionsRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
+    `SELECT DATE(completed_at) AS date, COUNT(*) AS completions
+     FROM user_level_progress
+     WHERE status = 'completed' AND completed_at IS NOT NULL AND completed_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+     GROUP BY DATE(completed_at)
+     ORDER BY DATE(completed_at) DESC
+     LIMIT ?`,
+    [days, days],
+  );
+
+  const [dailyUsersRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
+    `SELECT DATE(created_at) AS date, COUNT(*) AS users
+     FROM users
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+     GROUP BY DATE(created_at)
+     ORDER BY DATE(created_at) DESC
+     LIMIT ?`,
+    [days, days],
+  );
+
+  const [topLevelsRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
+    `SELECT
+      l.slug,
+      l.title,
+      COUNT(*) AS completions,
+      COALESCE(SUM(l.xp_reward), 0) AS xpGenerated
+     FROM user_level_progress p
+     INNER JOIN levels l ON l.id = p.level_id
+     WHERE p.status = 'completed'
+       AND p.completed_at IS NOT NULL
+       AND p.completed_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+     GROUP BY l.id, l.slug, l.title
+     ORDER BY completions DESC, xpGenerated DESC
+     LIMIT 8`,
+    [days],
+  );
+
+  const [usersRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
+    `SELECT
+      u.id,
+      u.display_name,
+      u.email,
+      COALESCE(us.total_xp, 0) AS totalXp,
+      COALESCE(us.levels_completed, 0) AS levelsCompleted,
+      us.last_activity_date AS lastActivityDate,
+      COALESCE(v.visits, 0) AS visitsInRange
+     FROM users u
+     LEFT JOIN user_stats us ON us.user_id = u.id
+     LEFT JOIN (
+       SELECT user_id, COUNT(*) AS visits
+       FROM visit_events
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+       GROUP BY user_id
+     ) v ON v.user_id = u.id
+     WHERE (? = '' OR u.display_name LIKE ? OR u.email LIKE ?)
+     ORDER BY totalXp DESC, levelsCompleted DESC, u.display_name ASC
+     LIMIT 120`,
+    [days, search, likeSearch, likeSearch],
   );
 
   return {
+    filters: {
+      days,
+      search,
+    },
     totals: {
       users: Number(totalsRows[0]?.usersCount ?? 0),
       visits: Number(totalsRows[0]?.visitsCount ?? 0),
       completions: Number(totalsRows[0]?.completionsCount ?? 0),
       totalXp: Number(totalsRows[0]?.totalXp ?? 0),
+      activeUsers7d: Number(totalsRows[0]?.activeUsers7d ?? 0),
+      newUsers7d: Number(totalsRows[0]?.newUsers7d ?? 0),
+      avgXpPerUser: Number(totalsRows[0]?.avgXpPerUser ?? 0),
     },
-    dailyVisits: dailyRows.map((row) => ({
+    dailyVisits: dailyVisitsRows.map((row) => ({
       date: String(row.date),
       visits: Number(row.visits),
+    })),
+    dailyCompletions: dailyCompletionsRows.map((row) => ({
+      date: String(row.date),
+      completions: Number(row.completions),
+    })),
+    dailyNewUsers: dailyUsersRows.map((row) => ({
+      date: String(row.date),
+      users: Number(row.users),
+    })),
+    topLevels: topLevelsRows.map((row) => ({
+      slug: String(row.slug),
+      title: String(row.title),
+      completions: Number(row.completions),
+      xpGenerated: Number(row.xpGenerated),
+    })),
+    users: usersRows.map((row) => ({
+      id: Number(row.id),
+      displayName: String(row.display_name),
+      email: String(row.email),
+      totalXp: Number(row.totalXp),
+      levelsCompleted: Number(row.levelsCompleted),
+      lastActivityDate: row.lastActivityDate ?? null,
+      visitsInRange: Number(row.visitsInRange),
+    })),
+  };
+});
+
+server.get('/api/admin/leaderboard', async (request, reply) => {
+  const auth = await authUser(request);
+
+  if (!auth || !adminEmails.has(auth.email.toLowerCase())) {
+    return reply.code(403).send({ message: 'Solo administradores.' });
+  }
+
+  const query = request.query as { limit?: string; window?: string } | undefined;
+  const limit = parsePositiveInt(query?.limit, 20, 100);
+  const windowRaw = (query?.window ?? 'all').toLowerCase();
+  const window: '7d' | '30d' | 'all' = windowRaw === '7d' || windowRaw === '30d' ? windowRaw : 'all';
+  const days = window === '7d' ? 7 : window === '30d' ? 30 : null;
+
+  const leaderboardQuery = days
+    ? `SELECT
+        u.id,
+        u.display_name,
+        u.email,
+        COALESCE(us.total_xp, 0) AS totalXp,
+        COALESCE(us.levels_completed, 0) AS levelsCompleted,
+        COALESCE(xp.xpEarned, 0) AS xpInWindow,
+        COALESCE(c.completedInWindow, 0) AS completedInWindow,
+        COALESCE(us.current_streak_days, 0) AS currentStreakDays
+      FROM users u
+      LEFT JOIN user_stats us ON us.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, COALESCE(SUM(xp_delta), 0) AS xpEarned
+        FROM xp_events
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+        GROUP BY user_id
+      ) xp ON xp.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, COUNT(*) AS completedInWindow
+        FROM user_level_progress
+        WHERE status = 'completed' AND completed_at IS NOT NULL AND completed_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+        GROUP BY user_id
+      ) c ON c.user_id = u.id
+      ORDER BY xpInWindow DESC, completedInWindow DESC, totalXp DESC, u.display_name ASC
+      LIMIT ?`
+    : `SELECT
+        u.id,
+        u.display_name,
+        u.email,
+        COALESCE(us.total_xp, 0) AS totalXp,
+        COALESCE(us.levels_completed, 0) AS levelsCompleted,
+        COALESCE(us.total_xp, 0) AS xpInWindow,
+        COALESCE(us.levels_completed, 0) AS completedInWindow,
+        COALESCE(us.current_streak_days, 0) AS currentStreakDays
+      FROM users u
+      LEFT JOIN user_stats us ON us.user_id = u.id
+      ORDER BY totalXp DESC, levelsCompleted DESC, u.display_name ASC
+      LIMIT ?`;
+
+  const leaderboardParams = days ? [days, days, limit] : [limit];
+  const [rows] = await mysqlPool.query<mysql.RowDataPacket[]>(leaderboardQuery, leaderboardParams);
+
+  return {
+    window,
+    limit,
+    generatedAt: new Date().toISOString(),
+    entries: rows.map((row, index) => ({
+      rank: index + 1,
+      userId: Number(row.id),
+      displayName: String(row.display_name),
+      email: String(row.email),
+      totalXp: Number(row.totalXp),
+      levelsCompleted: Number(row.levelsCompleted),
+      xpInWindow: Number(row.xpInWindow),
+      completedInWindow: Number(row.completedInWindow),
+      currentStreakDays: Number(row.currentStreakDays),
     })),
   };
 });

@@ -2,12 +2,15 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { tracks, type Level, type Track, type ValidatorKey } from './gameData';
 import {
+  getAdminLeaderboard,
   completeLesson,
   getAdminMetrics,
   getCurrentSession,
   loginWithGoogle,
   trackVisit,
   type AdminMetrics,
+  type LeaderboardResponse,
+  type LeaderboardWindow,
   type SessionUser,
   type UserStats,
 } from './apiClient';
@@ -295,6 +298,29 @@ function validatorIsBoss(validator: ValidatorKey) {
   return validator === 'python-boss-strings' || validator === 'php-boss-strings';
 }
 
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('es-PE').format(value);
+}
+
+function formatShortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('es-PE', {
+    month: 'short',
+    day: '2-digit',
+  }).format(date);
+}
+
+function rankBadge(rank: number) {
+  if (rank === 1) return 'TOP 1';
+  if (rank === 2) return 'TOP 2';
+  if (rank === 3) return 'TOP 3';
+  return `#${rank}`;
+}
+
 export default function App() {
   const logoSrc = `${import.meta.env.BASE_URL}logo.png`;
   const [screen, setScreen] = useState<Screen>('landing');
@@ -303,7 +329,12 @@ export default function App() {
   const [stats, setStats] = useState<UserStats>(emptyStats);
   const [authLoading, setAuthLoading] = useState(true);
   const [adminMetrics, setAdminMetrics] = useState<AdminMetrics | null>(null);
+  const [adminSearch, setAdminSearch] = useState('');
+  const [adminDays, setAdminDays] = useState(30);
+  const [leaderboardWindow, setLeaderboardWindow] = useState<LeaderboardWindow>('all');
+  const [leaderboard, setLeaderboard] = useState<LeaderboardResponse | null>(null);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [selectedTrackId, setSelectedTrackId] = useState<Track['id']>('python');
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [activeLessonId, setActiveLessonId] = useState<string>('python-1');
@@ -385,17 +416,48 @@ export default function App() {
     }
 
     setAdminLoading(true);
-    void getAdminMetrics(authToken)
+    const timeoutId = window.setTimeout(() => {
+      setAdminLoading(true);
+      void getAdminMetrics(authToken, {
+        days: adminDays,
+        search: adminSearch,
+      })
+        .then((payload) => {
+          setAdminMetrics(payload);
+        })
+        .catch((error) => {
+          pushToast(error instanceof Error ? error.message : 'No se pudo cargar admin.', 'warning');
+        })
+        .finally(() => {
+          setAdminLoading(false);
+        });
+    }, 280);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [screen, authToken, sessionUser?.isAdmin, adminDays, adminSearch]);
+
+  useEffect(() => {
+    if (screen !== 'admin' || !authToken || !sessionUser?.isAdmin) {
+      return;
+    }
+
+    setLeaderboardLoading(true);
+    void getAdminLeaderboard(authToken, {
+      window: leaderboardWindow,
+      limit: 20,
+    })
       .then((payload) => {
-        setAdminMetrics(payload);
+        setLeaderboard(payload);
       })
       .catch((error) => {
-        pushToast(error instanceof Error ? error.message : 'No se pudo cargar admin.', 'warning');
+        pushToast(error instanceof Error ? error.message : 'No se pudo cargar leaderboard.', 'warning');
       })
       .finally(() => {
-        setAdminLoading(false);
+        setLeaderboardLoading(false);
       });
-  }, [screen, authToken, sessionUser?.isAdmin]);
+  }, [screen, authToken, sessionUser?.isAdmin, leaderboardWindow]);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -557,6 +619,10 @@ export default function App() {
     setCompletedLessons([]);
     setStats(emptyStats);
     setAdminMetrics(null);
+    setLeaderboard(null);
+    setAdminSearch('');
+    setAdminDays(30);
+    setLeaderboardWindow('all');
     window.localStorage.removeItem(authTokenStorageKey);
     pushToast('Sesión cerrada. Sin Google no se guarda progreso.', 'info');
   }
@@ -616,6 +682,15 @@ export default function App() {
       pushToast('Pista desbloqueada.', 'info');
     }
   }
+
+  const visitsSeries = (adminMetrics?.dailyVisits ?? []).slice().reverse();
+  const completionsSeries = (adminMetrics?.dailyCompletions ?? []).slice().reverse();
+  const usersSeries = (adminMetrics?.dailyNewUsers ?? []).slice().reverse();
+  const visitMax = Math.max(...visitsSeries.map((entry) => entry.visits), 1);
+  const completionMax = Math.max(...completionsSeries.map((entry) => entry.completions), 1);
+  const userMax = Math.max(...usersSeries.map((entry) => entry.users), 1);
+  const leaderboardWindowLabel =
+    leaderboardWindow === '7d' ? 'ultimos 7 dias' : leaderboardWindow === '30d' ? 'ultimos 30 dias' : 'histórico total';
 
   return (
     <main className="app-shell">
@@ -998,8 +1073,8 @@ export default function App() {
             <div className="section-heading split-heading">
               <div>
                 <span className="eyebrow">Panel administrador</span>
-                <h2>Métricas de uso y progreso</h2>
-                <p>Vista conectada a MySQL para seguimiento real de la plataforma.</p>
+                <h2>Centro de inteligencia y competición</h2>
+                <p>Monitorea adquisición, engagement, avance académico y rendimiento competitivo.</p>
               </div>
               <div className="map-actions">
                 <button className="ghost-button" onClick={() => setScreen('landing')} type="button">
@@ -1010,9 +1085,20 @@ export default function App() {
                   onClick={() => {
                     if (authToken) {
                       setAdminLoading(true);
-                      void getAdminMetrics(authToken)
+                      setLeaderboardLoading(true);
+                      void getAdminMetrics(authToken, {
+                        days: adminDays,
+                        search: adminSearch,
+                      })
                         .then((payload) => setAdminMetrics(payload))
                         .finally(() => setAdminLoading(false));
+
+                      void getAdminLeaderboard(authToken, {
+                        window: leaderboardWindow,
+                        limit: 20,
+                      })
+                        .then((payload) => setLeaderboard(payload))
+                        .finally(() => setLeaderboardLoading(false));
                     }
                   }}
                   type="button"
@@ -1032,33 +1118,201 @@ export default function App() {
                 <h3>Cargando métricas...</h3>
               </article>
             ) : adminMetrics ? (
-              <div className="admin-grid">
-                <article className="panel-surface admin-card">
-                  <span>Usuarios</span>
-                  <strong>{adminMetrics.totals.users}</strong>
-                </article>
-                <article className="panel-surface admin-card">
-                  <span>Visitas</span>
-                  <strong>{adminMetrics.totals.visits}</strong>
-                </article>
-                <article className="panel-surface admin-card">
-                  <span>Niveles completados</span>
-                  <strong>{adminMetrics.totals.completions}</strong>
-                </article>
-                <article className="panel-surface admin-card">
-                  <span>XP total</span>
-                  <strong>{adminMetrics.totals.totalXp}</strong>
+              <div className="admin-dashboard">
+                <article className="panel-surface admin-controls">
+                  <div className="admin-control-group">
+                    <label htmlFor="admin-days">Ventana</label>
+                    <select
+                      id="admin-days"
+                      value={adminDays}
+                      onChange={(event) => setAdminDays(Number(event.target.value))}
+                    >
+                      <option value={7}>Ultimos 7 dias</option>
+                      <option value={30}>Ultimos 30 dias</option>
+                      <option value={90}>Ultimos 90 dias</option>
+                    </select>
+                  </div>
+
+                  <div className="admin-control-group admin-control-grow">
+                    <label htmlFor="admin-search">Buscar usuario</label>
+                    <input
+                      id="admin-search"
+                      type="search"
+                      placeholder="Nombre o correo"
+                      value={adminSearch}
+                      onChange={(event) => setAdminSearch(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="admin-control-group">
+                    <label htmlFor="leaderboard-window">Leaderboard</label>
+                    <select
+                      id="leaderboard-window"
+                      value={leaderboardWindow}
+                      onChange={(event) => setLeaderboardWindow(event.target.value as LeaderboardWindow)}
+                    >
+                      <option value="7d">7 dias</option>
+                      <option value="30d">30 dias</option>
+                      <option value="all">Historico</option>
+                    </select>
+                  </div>
                 </article>
 
-                <article className="panel-surface admin-table">
-                  <h3>Visitas por fecha</h3>
-                  <div className="admin-table-grid">
-                    {adminMetrics.dailyVisits.map((entry) => (
-                      <div className="admin-table-row" key={entry.date}>
-                        <span>{entry.date}</span>
-                        <strong>{entry.visits}</strong>
+                <div className="admin-grid">
+                  <article className="panel-surface admin-card">
+                    <span>Usuarios registrados</span>
+                    <strong>{formatNumber(adminMetrics.totals.users)}</strong>
+                  </article>
+                  <article className="panel-surface admin-card">
+                    <span>Visitas totales</span>
+                    <strong>{formatNumber(adminMetrics.totals.visits)}</strong>
+                  </article>
+                  <article className="panel-surface admin-card">
+                    <span>Cursos completados</span>
+                    <strong>{formatNumber(adminMetrics.totals.completions)}</strong>
+                  </article>
+                  <article className="panel-surface admin-card">
+                    <span>XP global</span>
+                    <strong>{formatNumber(adminMetrics.totals.totalXp)}</strong>
+                  </article>
+                  <article className="panel-surface admin-card">
+                    <span>Activos 7d</span>
+                    <strong>{formatNumber(adminMetrics.totals.activeUsers7d)}</strong>
+                  </article>
+                  <article className="panel-surface admin-card">
+                    <span>Nuevos usuarios 7d</span>
+                    <strong>{formatNumber(adminMetrics.totals.newUsers7d)}</strong>
+                  </article>
+                  <article className="panel-surface admin-card">
+                    <span>XP promedio</span>
+                    <strong>{formatNumber(Math.round(adminMetrics.totals.avgXpPerUser))}</strong>
+                  </article>
+                  <article className="panel-surface admin-card admin-card-accent">
+                    <span>Ventana analizada</span>
+                    <strong>{adminMetrics.filters.days} dias</strong>
+                  </article>
+                </div>
+
+                <div className="admin-charts-grid">
+                  <article className="panel-surface admin-chart-card">
+                    <h3>Ingresos diarios (visitas)</h3>
+                    <div className="admin-bar-chart">
+                      {visitsSeries.map((entry) => (
+                        <div className="admin-bar-col" key={`visits-${entry.date}`}>
+                          <div className="admin-bar-track">
+                            <span style={{ height: `${Math.max(8, (entry.visits / visitMax) * 100)}%` }} />
+                          </div>
+                          <strong>{entry.visits}</strong>
+                          <small>{formatShortDate(entry.date)}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article className="panel-surface admin-chart-card">
+                    <h3>Completitud de cursos por dia</h3>
+                    <div className="admin-bar-chart admin-bar-chart-completions">
+                      {completionsSeries.map((entry) => (
+                        <div className="admin-bar-col" key={`completions-${entry.date}`}>
+                          <div className="admin-bar-track">
+                            <span style={{ height: `${Math.max(8, (entry.completions / completionMax) * 100)}%` }} />
+                          </div>
+                          <strong>{entry.completions}</strong>
+                          <small>{formatShortDate(entry.date)}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article className="panel-surface admin-chart-card">
+                    <h3>Adquisicion de usuarios</h3>
+                    <div className="admin-bar-chart admin-bar-chart-users">
+                      {usersSeries.map((entry) => (
+                        <div className="admin-bar-col" key={`users-${entry.date}`}>
+                          <div className="admin-bar-track">
+                            <span style={{ height: `${Math.max(8, (entry.users / userMax) * 100)}%` }} />
+                          </div>
+                          <strong>{entry.users}</strong>
+                          <small>{formatShortDate(entry.date)}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                </div>
+
+                <div className="admin-bottom-grid">
+                  <article className="panel-surface admin-table">
+                    <h3>Top cursos por impacto</h3>
+                    <div className="admin-table-grid">
+                      {adminMetrics.topLevels.map((entry) => (
+                        <div className="admin-table-row" key={entry.slug}>
+                          <div>
+                            <strong>{entry.title}</strong>
+                            <span>{entry.slug}</span>
+                          </div>
+                          <div className="admin-table-values">
+                            <span>{formatNumber(entry.completions)} completados</span>
+                            <strong>{formatNumber(entry.xpGenerated)} XP</strong>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article className="panel-surface admin-table">
+                    <h3>Leaderboard competitivo ({leaderboardWindowLabel})</h3>
+                    {leaderboardLoading ? (
+                      <p>Cargando leaderboard...</p>
+                    ) : leaderboard ? (
+                      <div className="leaderboard-grid">
+                        {leaderboard.entries.map((entry) => (
+                          <div className="leaderboard-row" key={entry.userId}>
+                            <span className="leaderboard-rank">{rankBadge(entry.rank)}</span>
+                            <div className="leaderboard-user">
+                              <strong>{entry.displayName}</strong>
+                              <small>{entry.email}</small>
+                            </div>
+                            <div className="leaderboard-stats">
+                              <span>{formatNumber(entry.xpInWindow)} XP ventana</span>
+                              <span>{formatNumber(entry.completedInWindow)} niveles</span>
+                              <strong>{formatNumber(entry.totalXp)} XP total</strong>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    ) : (
+                      <p>No hay datos de ranking disponibles.</p>
+                    )}
+                  </article>
+                </div>
+
+                <article className="panel-surface admin-table admin-table-wide">
+                  <h3>Usuarios y actividad ({formatNumber(adminMetrics.users.length)} resultados)</h3>
+                  <div className="admin-users-table-wrap">
+                    <table className="admin-users-table">
+                      <thead>
+                        <tr>
+                          <th>Usuario</th>
+                          <th>Correo</th>
+                          <th>XP</th>
+                          <th>Niveles</th>
+                          <th>Visitas</th>
+                          <th>Ultima actividad</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminMetrics.users.map((entry) => (
+                          <tr key={entry.id}>
+                            <td>{entry.displayName}</td>
+                            <td>{entry.email}</td>
+                            <td>{formatNumber(entry.totalXp)}</td>
+                            <td>{formatNumber(entry.levelsCompleted)}</td>
+                            <td>{formatNumber(entry.visitsInRange)}</td>
+                            <td>{entry.lastActivityDate ?? 'Sin actividad'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </article>
               </div>
