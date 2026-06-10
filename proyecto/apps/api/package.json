@@ -11,9 +11,13 @@
   "dependencies": {
     "@fastify/cors": "^11.0.1",
     "dotenv": "^16.5.0",
-    "fastify": "^5.3.2"
+    "fastify": "^5.3.2",
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.14.1"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.0.1",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"

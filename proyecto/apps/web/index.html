@@ -30,7 +30,7 @@
           visitorId = null;
         }
 
-        const configuredOrigin = '%VITE_ANALYTICS_API_ORIGIN%';
+        const configuredOrigin = '__VITE_ANALYTICS_API_ORIGIN__';
         const hasConfiguredOrigin = configuredOrigin && !configuredOrigin.startsWith('%VITE_');
         const explicitEndpoint = hasConfiguredOrigin
           ? configuredOrigin.replace(/\/$/, '') + '/api/analytics/visit'

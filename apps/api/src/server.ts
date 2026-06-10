@@ -9,6 +9,15 @@ await server.register(cors, {
   origin: true,
 });
 
+server.get('/', async () => {
+  return {
+    name: 'codebreaker-api',
+    status: 'ok',
+    message: 'API activa. Usa los endpoints disponibles para consultar datos.',
+    endpoints: ['/health', '/api/meta'],
+  };
+});
+
 server.get('/health', async () => {
   return {
     name: 'codebreaker-api',

@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { tracks, type Level, type Track, type ValidatorKey } from './gameData';
+import {
+  completeLesson,
+  getAdminMetrics,
+  getCurrentSession,
+  loginWithGoogle,
+  trackVisit,
+  type AdminMetrics,
+  type SessionUser,
+  type UserStats,
+} from './apiClient';
 
-type Screen = 'landing' | 'routes' | 'map' | 'lesson';
+type Screen = 'landing' | 'routes' | 'map' | 'lesson' | 'admin';
 
 type RunResult = {
   success: boolean;
@@ -15,6 +26,16 @@ type UiToast = {
   message: string;
 };
 
+const authTokenStorageKey = 'codebreaker_auth_token';
+const visitorIdStorageKey = 'codebreaker_visitor_id';
+
+const emptyStats: UserStats = {
+  totalXp: 0,
+  levelsCompleted: 0,
+  currentStreakDays: 0,
+  lastActivityDate: null,
+};
+
 const lessonCatalog = Object.fromEntries(
   tracks.flatMap((track) => track.levels.map((level) => [level.id, level])),
 ) as Record<string, Level>;
@@ -25,11 +46,13 @@ const initialCodeByLesson = Object.fromEntries(
   ),
 ) as Record<string, string>;
 
-const statCards = [
-  { label: 'Lecciones activas', value: '2 rutas' },
-  { label: 'Tiempo de misión', value: '3 a 5 min' },
-  { label: 'Modo actual', value: 'Demo navegable' },
-];
+function buildStatCards(stats: UserStats, completedLessons: string[]) {
+  return [
+    { label: 'Lecciones completadas', value: `${completedLessons.length}` },
+    { label: 'XP acumulada', value: `${stats.totalXp}` },
+    { label: 'Modo actual', value: 'Azure Ready' },
+  ];
+}
 
 const mapNodeSlots = [
   { left: '8%', top: '20%' },
@@ -117,6 +140,20 @@ function getLevelState(track: Track, level: Level, completedLessons: string[]) {
 
 function normalizeCode(code: string) {
   return code.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function getOrCreateVisitorId() {
+  const current = window.localStorage.getItem(visitorIdStorageKey);
+  if (current) {
+    return current;
+  }
+
+  const generated =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `visitor-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  window.localStorage.setItem(visitorIdStorageKey, generated);
+  return generated;
 }
 
 function validateLesson(
@@ -261,6 +298,12 @@ function validatorIsBoss(validator: ValidatorKey) {
 export default function App() {
   const logoSrc = `${import.meta.env.BASE_URL}logo.png`;
   const [screen, setScreen] = useState<Screen>('landing');
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [stats, setStats] = useState<UserStats>(emptyStats);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [adminMetrics, setAdminMetrics] = useState<AdminMetrics | null>(null);
+  const [adminLoading, setAdminLoading] = useState(false);
   const [selectedTrackId, setSelectedTrackId] = useState<Track['id']>('python');
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [activeLessonId, setActiveLessonId] = useState<string>('python-1');
@@ -273,6 +316,7 @@ export default function App() {
   const [bossTimeLeft, setBossTimeLeft] = useState<number | null>(null);
   const [uiToast, setUiToast] = useState<UiToast | null>(null);
   const mapScrollRef = useRef<HTMLDivElement | null>(null);
+  const statCards = buildStatCards(stats, completedLessons);
 
   const activeTrack = getTrack(selectedTrackId);
   const activeLesson = lessonCatalog[activeLessonId] ?? activeTrack.levels[0];
@@ -307,6 +351,51 @@ export default function App() {
   function pushToast(message: string, tone: UiToast['tone']) {
     setUiToast({ message, tone });
   }
+
+  useEffect(() => {
+    const savedToken = window.localStorage.getItem(authTokenStorageKey);
+
+    if (!savedToken) {
+      setAuthLoading(false);
+      void trackVisit(getOrCreateVisitorId()).catch(() => {
+        // Ignore analytics errors in UI boot.
+      });
+      return;
+    }
+
+    void getCurrentSession(savedToken)
+      .then((snapshot) => {
+        setAuthToken(savedToken);
+        setSessionUser(snapshot.user);
+        setCompletedLessons(snapshot.completedLessons);
+        setStats(snapshot.stats);
+        return trackVisit(getOrCreateVisitorId(), savedToken);
+      })
+      .catch(() => {
+        window.localStorage.removeItem(authTokenStorageKey);
+      })
+      .finally(() => {
+        setAuthLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (screen !== 'admin' || !authToken || !sessionUser?.isAdmin) {
+      return;
+    }
+
+    setAdminLoading(true);
+    void getAdminMetrics(authToken)
+      .then((payload) => {
+        setAdminMetrics(payload);
+      })
+      .catch((error) => {
+        pushToast(error instanceof Error ? error.message : 'No se pudo cargar admin.', 'warning');
+      })
+      .finally(() => {
+        setAdminLoading(false);
+      });
+  }, [screen, authToken, sessionUser?.isAdmin]);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -428,6 +517,39 @@ export default function App() {
     pushToast(`Ruta ${track.name} lista para jugar.`, 'info');
   }
 
+  async function handleGoogleCredential(response: CredentialResponse) {
+    if (!response.credential) {
+      pushToast('Google no devolvió credencial válida.', 'warning');
+      return;
+    }
+
+    try {
+      const authResponse = await loginWithGoogle(response.credential);
+      setAuthToken(authResponse.token);
+      setSessionUser(authResponse.user);
+      setCompletedLessons(authResponse.completedLessons);
+      setStats(authResponse.stats);
+      window.localStorage.setItem(authTokenStorageKey, authResponse.token);
+      await trackVisit(getOrCreateVisitorId(), authResponse.token);
+      pushToast(`Bienvenido, ${authResponse.user.displayName}.`, 'success');
+    } catch (error) {
+      pushToast(
+        error instanceof Error ? error.message : 'No se pudo iniciar sesión con Google.',
+        'warning',
+      );
+    }
+  }
+
+  function handleLogout() {
+    setAuthToken(null);
+    setSessionUser(null);
+    setCompletedLessons([]);
+    setStats(emptyStats);
+    setAdminMetrics(null);
+    window.localStorage.removeItem(authTokenStorageKey);
+    pushToast('Sesión cerrada. Sin Google no se guarda progreso.', 'info');
+  }
+
   function handleOpenLesson(levelId: string) {
     setActiveLessonId(levelId);
     setRunResult(null);
@@ -443,13 +565,28 @@ export default function App() {
     }));
   }
 
-  function handleRunLesson() {
+  async function handleRunLesson() {
     const result = validateLesson(activeLesson, activeCode, bossTimeLeft);
 
     setRunResult(result);
 
     if (result.success && !completedLessons.includes(activeLesson.id)) {
       setCompletedLessons((current) => [...current, activeLesson.id]);
+
+      if (!authToken) {
+        pushToast('Completado localmente. Inicia sesión con Google para guardar.', 'warning');
+      } else {
+        try {
+          const snapshot = await completeLesson(authToken, activeLesson.id);
+          setCompletedLessons(snapshot.completedLessons);
+          setStats(snapshot.stats);
+        } catch (error) {
+          pushToast(
+            error instanceof Error ? error.message : 'No se pudo guardar progreso en servidor.',
+            'warning',
+          );
+        }
+      }
     }
 
     pushToast(
@@ -492,6 +629,18 @@ export default function App() {
               Mapa
             </button>
             <button
+              onClick={() => {
+                if (!sessionUser?.isAdmin) {
+                  pushToast('Solo administradores pueden abrir el panel.', 'warning');
+                  return;
+                }
+                setScreen('admin');
+              }}
+              type="button"
+            >
+              Admin
+            </button>
+            <button
               className="sound-toggle"
               onClick={() => {
                 setSoundEnabled((current) => {
@@ -509,6 +658,23 @@ export default function App() {
             </button>
           </nav>
         </header>
+
+        <div className="session-bar">
+          {authLoading ? (
+            <span>Cargando sesión...</span>
+          ) : sessionUser ? (
+            <>
+              <span>
+                Sesión: <strong>{sessionUser.displayName}</strong> · XP {stats.totalXp}
+              </span>
+              <button className="ghost-button" onClick={handleLogout} type="button">
+                Cerrar sesión
+              </button>
+            </>
+          ) : (
+            <span>Sin Google, tu progreso no se guardará en la base de datos.</span>
+          )}
+        </div>
 
         {uiToast && (
           <div className={`ui-toast ui-toast-${uiToast.tone}`}>
@@ -543,6 +709,21 @@ export default function App() {
                     Ir directo a Python
                   </button>
                 </div>
+
+                {!sessionUser && (
+                  <div className="google-login-wrap">
+                    <p>
+                      Inicia sesión con Google para guardar niveles completados y XP en la base de datos.
+                    </p>
+                    <GoogleLogin
+                      onSuccess={handleGoogleCredential}
+                      onError={() => pushToast('No se pudo iniciar sesión con Google.', 'warning')}
+                      theme="filled_black"
+                      shape="pill"
+                      text="continue_with"
+                    />
+                  </div>
+                )}
 
                 <div className="stat-grid">
                   {statCards.map((card) => (
@@ -798,6 +979,84 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </section>
+        )}
+
+        {screen === 'admin' && (
+          <section className="screen">
+            <div className="section-heading split-heading">
+              <div>
+                <span className="eyebrow">Panel administrador</span>
+                <h2>Métricas de uso y progreso</h2>
+                <p>Vista conectada a MySQL para seguimiento real de la plataforma.</p>
+              </div>
+              <div className="map-actions">
+                <button className="ghost-button" onClick={() => setScreen('landing')} type="button">
+                  Volver
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => {
+                    if (authToken) {
+                      setAdminLoading(true);
+                      void getAdminMetrics(authToken)
+                        .then((payload) => setAdminMetrics(payload))
+                        .finally(() => setAdminLoading(false));
+                    }
+                  }}
+                  type="button"
+                >
+                  Refrescar
+                </button>
+              </div>
+            </div>
+
+            {!sessionUser?.isAdmin ? (
+              <article className="panel-surface">
+                <h3>Acceso restringido</h3>
+                <p>Solo usuarios administradores pueden consultar este módulo.</p>
+              </article>
+            ) : adminLoading ? (
+              <article className="panel-surface">
+                <h3>Cargando métricas...</h3>
+              </article>
+            ) : adminMetrics ? (
+              <div className="admin-grid">
+                <article className="panel-surface admin-card">
+                  <span>Usuarios</span>
+                  <strong>{adminMetrics.totals.users}</strong>
+                </article>
+                <article className="panel-surface admin-card">
+                  <span>Visitas</span>
+                  <strong>{adminMetrics.totals.visits}</strong>
+                </article>
+                <article className="panel-surface admin-card">
+                  <span>Niveles completados</span>
+                  <strong>{adminMetrics.totals.completions}</strong>
+                </article>
+                <article className="panel-surface admin-card">
+                  <span>XP total</span>
+                  <strong>{adminMetrics.totals.totalXp}</strong>
+                </article>
+
+                <article className="panel-surface admin-table">
+                  <h3>Visitas por fecha</h3>
+                  <div className="admin-table-grid">
+                    {adminMetrics.dailyVisits.map((entry) => (
+                      <div className="admin-table-row" key={entry.date}>
+                        <span>{entry.date}</span>
+                        <strong>{entry.visits}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              </div>
+            ) : (
+              <article className="panel-surface">
+                <h3>Sin datos</h3>
+                <p>Todavía no hay métricas disponibles.</p>
+              </article>
+            )}
           </section>
         )}
 
