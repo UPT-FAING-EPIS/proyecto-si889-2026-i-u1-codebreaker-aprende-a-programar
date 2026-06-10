@@ -73,6 +73,22 @@ export type LeaderboardResponse = {
   }>;
 };
 
+export type PublicLeaderboardResponse = {
+  window: LeaderboardWindow;
+  limit: number;
+  generatedAt: string;
+  entries: Array<{
+    rank: number;
+    userId: number;
+    displayName: string;
+    totalXp: number;
+    levelsCompleted: number;
+    xpInWindow: number;
+    completedInWindow: number;
+    currentStreakDays: number;
+  }>;
+};
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
 
 function buildHeaders(token?: string, includeJson = true) {
@@ -181,4 +197,15 @@ export async function getAdminLeaderboard(
   return request<LeaderboardResponse>(`/api/admin/leaderboard${query}`, {
     headers: buildHeaders(token, false),
   });
+}
+
+export async function getPublicLeaderboard(
+  options?: { window?: LeaderboardWindow; limit?: number },
+): Promise<PublicLeaderboardResponse> {
+  const query = buildQuery({
+    window: options?.window,
+    limit: options?.limit,
+  });
+
+  return request<PublicLeaderboardResponse>(`/api/leaderboard${query}`);
 }

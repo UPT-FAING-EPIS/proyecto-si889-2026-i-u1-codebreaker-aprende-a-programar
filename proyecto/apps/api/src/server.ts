@@ -44,6 +44,54 @@ function parsePositiveInt(value: unknown, fallback: number, max: number) {
   return Math.min(Math.floor(parsed), max);
 }
 
+async function fetchLeaderboardRows(window: '7d' | '30d' | 'all', limit: number) {
+  const days = window === '7d' ? 7 : window === '30d' ? 30 : null;
+
+  const leaderboardQuery = days
+    ? `SELECT
+        u.id,
+        u.display_name,
+        u.email,
+        COALESCE(us.total_xp, 0) AS totalXp,
+        COALESCE(us.levels_completed, 0) AS levelsCompleted,
+        COALESCE(xp.xpEarned, 0) AS xpInWindow,
+        COALESCE(c.completedInWindow, 0) AS completedInWindow,
+        COALESCE(us.current_streak_days, 0) AS currentStreakDays
+      FROM users u
+      LEFT JOIN user_stats us ON us.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, COALESCE(SUM(xp_delta), 0) AS xpEarned
+        FROM xp_events
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+        GROUP BY user_id
+      ) xp ON xp.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, COUNT(*) AS completedInWindow
+        FROM user_level_progress
+        WHERE status = 'completed' AND completed_at IS NOT NULL AND completed_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+        GROUP BY user_id
+      ) c ON c.user_id = u.id
+      ORDER BY xpInWindow DESC, completedInWindow DESC, totalXp DESC, u.display_name ASC
+      LIMIT ?`
+    : `SELECT
+        u.id,
+        u.display_name,
+        u.email,
+        COALESCE(us.total_xp, 0) AS totalXp,
+        COALESCE(us.levels_completed, 0) AS levelsCompleted,
+        COALESCE(us.total_xp, 0) AS xpInWindow,
+        COALESCE(us.levels_completed, 0) AS completedInWindow,
+        COALESCE(us.current_streak_days, 0) AS currentStreakDays
+      FROM users u
+      LEFT JOIN user_stats us ON us.user_id = u.id
+      ORDER BY totalXp DESC, levelsCompleted DESC, u.display_name ASC
+      LIMIT ?`;
+
+  const leaderboardParams = days ? [days, days, limit] : [limit];
+  const [rows] = await mysqlPool.query<mysql.RowDataPacket[]>(leaderboardQuery, leaderboardParams);
+  return rows;
+}
+
 const levelSeeds = [
   { trackSlug: 'python', slug: 'python-1', title: 'Hola, Python', order: 1, xpReward: 10, difficulty: 'beginner', isBoss: 0 },
   { trackSlug: 'python', slug: 'python-2', title: 'Variables de energía', order: 2, xpReward: 15, difficulty: 'beginner', isBoss: 0 },
@@ -150,7 +198,32 @@ server.get('/', async () => {
     name: 'codebreaker-api',
     status: 'ok',
     message: 'API activa con progreso en MySQL, login y métricas.',
-    endpoints: ['/health', '/api/meta', '/api/auth/google', '/api/progress/me', '/api/admin/metrics', '/api/admin/leaderboard'],
+    endpoints: ['/health', '/api/meta', '/api/auth/google', '/api/progress/me', '/api/leaderboard', '/api/admin/metrics', '/api/admin/leaderboard'],
+  };
+});
+
+server.get('/api/leaderboard', async (request) => {
+  const query = request.query as { limit?: string; window?: string } | undefined;
+  const limit = parsePositiveInt(query?.limit, 25, 100);
+  const windowRaw = (query?.window ?? 'all').toLowerCase();
+  const window: '7d' | '30d' | 'all' = windowRaw === '7d' || windowRaw === '30d' ? windowRaw : 'all';
+
+  const rows = await fetchLeaderboardRows(window, limit);
+
+  return {
+    window,
+    limit,
+    generatedAt: new Date().toISOString(),
+    entries: rows.map((row, index) => ({
+      rank: index + 1,
+      userId: Number(row.id),
+      displayName: String(row.display_name),
+      totalXp: Number(row.totalXp),
+      levelsCompleted: Number(row.levelsCompleted),
+      xpInWindow: Number(row.xpInWindow),
+      completedInWindow: Number(row.completedInWindow),
+      currentStreakDays: Number(row.currentStreakDays),
+    })),
   };
 });
 
@@ -527,50 +600,7 @@ server.get('/api/admin/leaderboard', async (request, reply) => {
   const limit = parsePositiveInt(query?.limit, 20, 100);
   const windowRaw = (query?.window ?? 'all').toLowerCase();
   const window: '7d' | '30d' | 'all' = windowRaw === '7d' || windowRaw === '30d' ? windowRaw : 'all';
-  const days = window === '7d' ? 7 : window === '30d' ? 30 : null;
-
-  const leaderboardQuery = days
-    ? `SELECT
-        u.id,
-        u.display_name,
-        u.email,
-        COALESCE(us.total_xp, 0) AS totalXp,
-        COALESCE(us.levels_completed, 0) AS levelsCompleted,
-        COALESCE(xp.xpEarned, 0) AS xpInWindow,
-        COALESCE(c.completedInWindow, 0) AS completedInWindow,
-        COALESCE(us.current_streak_days, 0) AS currentStreakDays
-      FROM users u
-      LEFT JOIN user_stats us ON us.user_id = u.id
-      LEFT JOIN (
-        SELECT user_id, COALESCE(SUM(xp_delta), 0) AS xpEarned
-        FROM xp_events
-        WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-        GROUP BY user_id
-      ) xp ON xp.user_id = u.id
-      LEFT JOIN (
-        SELECT user_id, COUNT(*) AS completedInWindow
-        FROM user_level_progress
-        WHERE status = 'completed' AND completed_at IS NOT NULL AND completed_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-        GROUP BY user_id
-      ) c ON c.user_id = u.id
-      ORDER BY xpInWindow DESC, completedInWindow DESC, totalXp DESC, u.display_name ASC
-      LIMIT ?`
-    : `SELECT
-        u.id,
-        u.display_name,
-        u.email,
-        COALESCE(us.total_xp, 0) AS totalXp,
-        COALESCE(us.levels_completed, 0) AS levelsCompleted,
-        COALESCE(us.total_xp, 0) AS xpInWindow,
-        COALESCE(us.levels_completed, 0) AS completedInWindow,
-        COALESCE(us.current_streak_days, 0) AS currentStreakDays
-      FROM users u
-      LEFT JOIN user_stats us ON us.user_id = u.id
-      ORDER BY totalXp DESC, levelsCompleted DESC, u.display_name ASC
-      LIMIT ?`;
-
-  const leaderboardParams = days ? [days, days, limit] : [limit];
-  const [rows] = await mysqlPool.query<mysql.RowDataPacket[]>(leaderboardQuery, leaderboardParams);
+  const rows = await fetchLeaderboardRows(window, limit);
 
   return {
     window,

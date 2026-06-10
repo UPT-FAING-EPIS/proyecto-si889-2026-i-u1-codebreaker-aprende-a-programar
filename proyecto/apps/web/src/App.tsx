@@ -3,6 +3,7 @@ import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { tracks, type Level, type Track, type ValidatorKey } from './gameData';
 import {
   getAdminLeaderboard,
+  getPublicLeaderboard,
   completeLesson,
   getAdminMetrics,
   getCurrentSession,
@@ -11,11 +12,12 @@ import {
   type AdminMetrics,
   type LeaderboardResponse,
   type LeaderboardWindow,
+  type PublicLeaderboardResponse,
   type SessionUser,
   type UserStats,
 } from './apiClient';
 
-type Screen = 'landing' | 'routes' | 'map' | 'lesson' | 'admin';
+type Screen = 'landing' | 'routes' | 'map' | 'lesson' | 'leaderboard' | 'admin';
 
 type RunResult = {
   success: boolean;
@@ -333,8 +335,11 @@ export default function App() {
   const [adminDays, setAdminDays] = useState(30);
   const [leaderboardWindow, setLeaderboardWindow] = useState<LeaderboardWindow>('all');
   const [leaderboard, setLeaderboard] = useState<LeaderboardResponse | null>(null);
+  const [publicLeaderboardWindow, setPublicLeaderboardWindow] = useState<LeaderboardWindow>('all');
+  const [publicLeaderboard, setPublicLeaderboard] = useState<PublicLeaderboardResponse | null>(null);
   const [adminLoading, setAdminLoading] = useState(false);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [publicLeaderboardLoading, setPublicLeaderboardLoading] = useState(false);
   const [selectedTrackId, setSelectedTrackId] = useState<Track['id']>('python');
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [activeLessonId, setActiveLessonId] = useState<string>('python-1');
@@ -409,6 +414,27 @@ export default function App() {
         setAuthLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    if (screen !== 'leaderboard') {
+      return;
+    }
+
+    setPublicLeaderboardLoading(true);
+    void getPublicLeaderboard({
+      window: publicLeaderboardWindow,
+      limit: 50,
+    })
+      .then((payload) => {
+        setPublicLeaderboard(payload);
+      })
+      .catch((error) => {
+        pushToast(error instanceof Error ? error.message : 'No se pudo cargar ranking público.', 'warning');
+      })
+      .finally(() => {
+        setPublicLeaderboardLoading(false);
+      });
+  }, [screen, publicLeaderboardWindow]);
 
   useEffect(() => {
     if (screen !== 'admin' || !authToken || !sessionUser?.isAdmin) {
@@ -691,6 +717,12 @@ export default function App() {
   const userMax = Math.max(...usersSeries.map((entry) => entry.users), 1);
   const leaderboardWindowLabel =
     leaderboardWindow === '7d' ? 'ultimos 7 dias' : leaderboardWindow === '30d' ? 'ultimos 30 dias' : 'histórico total';
+  const publicLeaderboardWindowLabel =
+    publicLeaderboardWindow === '7d'
+      ? 'temporada 7 dias'
+      : publicLeaderboardWindow === '30d'
+        ? 'temporada 30 dias'
+        : 'leyendas historicas';
 
   return (
     <main className="app-shell">
@@ -713,6 +745,9 @@ export default function App() {
             </button>
             <button onClick={() => handleTrackSelection(selectedTrackId)} type="button">
               Mapa
+            </button>
+            <button onClick={() => setScreen('leaderboard')} type="button">
+              Leaderboard
             </button>
             <button
               onClick={() => {
@@ -1320,6 +1355,87 @@ export default function App() {
               <article className="panel-surface">
                 <h3>Sin datos</h3>
                 <p>Todavía no hay métricas disponibles.</p>
+              </article>
+            )}
+          </section>
+        )}
+
+        {screen === 'leaderboard' && (
+          <section className="screen leaderboard-public-screen">
+            <div className="section-heading split-heading">
+              <div>
+                <span className="eyebrow">Arena competitiva</span>
+                <h2>Leaderboard global Codebreaker</h2>
+                <p>
+                  El ranking es público para motivar competencia real entre jugadores.
+                  Sube XP, completa niveles y entra al top de la temporada.
+                </p>
+              </div>
+
+              <div className="map-actions">
+                <select
+                  className="leaderboard-public-select"
+                  value={publicLeaderboardWindow}
+                  onChange={(event) => setPublicLeaderboardWindow(event.target.value as LeaderboardWindow)}
+                >
+                  <option value="7d">Temporada 7 dias</option>
+                  <option value="30d">Temporada 30 dias</option>
+                  <option value="all">Historico</option>
+                </select>
+
+                <button className="primary-button" onClick={() => setScreen('map')} type="button">
+                  Seguir jugando
+                </button>
+              </div>
+            </div>
+
+            {publicLeaderboardLoading ? (
+              <article className="panel-surface">
+                <h3>Cargando tabla competitiva...</h3>
+              </article>
+            ) : publicLeaderboard ? (
+              <div className="leaderboard-public-layout">
+                <article className="panel-surface leaderboard-public-hero">
+                  <span className="leaderboard-public-kicker">Modo</span>
+                  <h3>{publicLeaderboardWindowLabel}</h3>
+                  <p>{formatNumber(publicLeaderboard.entries.length)} jugadores clasificados.</p>
+                  <div className="leaderboard-public-meta">
+                    <div>
+                      <span>Top 1 XP</span>
+                      <strong>{formatNumber(publicLeaderboard.entries[0]?.xpInWindow ?? 0)}</strong>
+                    </div>
+                    <div>
+                      <span>Top 1 Niveles</span>
+                      <strong>{formatNumber(publicLeaderboard.entries[0]?.completedInWindow ?? 0)}</strong>
+                    </div>
+                    <div>
+                      <span>Racha del lider</span>
+                      <strong>{formatNumber(publicLeaderboard.entries[0]?.currentStreakDays ?? 0)} dias</strong>
+                    </div>
+                  </div>
+                </article>
+
+                <article className="panel-surface leaderboard-public-board">
+                  {publicLeaderboard.entries.map((entry) => (
+                    <div className="leaderboard-public-row" key={entry.userId}>
+                      <div className="leaderboard-public-rank">{rankBadge(entry.rank)}</div>
+                      <div className="leaderboard-public-user">
+                        <strong>{entry.displayName}</strong>
+                        <small>Racha {formatNumber(entry.currentStreakDays)} dias</small>
+                      </div>
+                      <div className="leaderboard-public-points">
+                        <span>{formatNumber(entry.xpInWindow)} XP temporada</span>
+                        <span>{formatNumber(entry.completedInWindow)} niveles temporada</span>
+                        <strong>{formatNumber(entry.totalXp)} XP total</strong>
+                      </div>
+                    </div>
+                  ))}
+                </article>
+              </div>
+            ) : (
+              <article className="panel-surface">
+                <h3>Sin datos de ranking</h3>
+                <p>Todavia no hay jugadores en el leaderboard.</p>
               </article>
             )}
           </section>
