@@ -19,8 +19,8 @@ jobs:
        contents: read
     env:
       VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-      VITE_API_URL: https://codebreaker-api-prod.azurewebsites.net
-      VITE_ANALYTICS_API_ORIGIN: https://codebreaker-api-prod.azurewebsites.net
+      VITE_API_URL: https://codebreaker-api-prod-hjbsb7e5d8a4e0f9.mexicocentral-01.azurewebsites.net
+      VITE_ANALYTICS_API_ORIGIN: https://codebreaker-api-prod-hjbsb7e5d8a4e0f9.mexicocentral-01.azurewebsites.net
     steps:
       - uses: actions/checkout@v3
         with:

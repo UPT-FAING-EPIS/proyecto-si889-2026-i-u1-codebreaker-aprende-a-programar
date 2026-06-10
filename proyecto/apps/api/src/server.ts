@@ -6,7 +6,7 @@ import mysql from 'mysql2/promise';
 import { OAuth2Client } from 'google-auth-library';
 
 const server = Fastify({ logger: true });
-const apiPort = Number(process.env.API_PORT ?? 4000);
+const apiPort = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);
 const jwtSecret = process.env.APP_JWT_SECRET ?? 'dev-secret-change-me';
 const googleClientId = process.env.GOOGLE_CLIENT_ID ?? '';
 const oauthClient = new OAuth2Client(googleClientId);
