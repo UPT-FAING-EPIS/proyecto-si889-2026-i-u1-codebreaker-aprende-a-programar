@@ -55,11 +55,18 @@ async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, options);
+  const endpoint = `${API_URL}${path}`;
+  let response: Response;
+
+  try {
+    response = await fetch(endpoint, options);
+  } catch {
+    throw new Error(`No se pudo conectar con la API en ${endpoint}. Revisa CORS, URL y estado del servidor.`);
+  }
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { message?: string };
-    throw new Error(payload.message ?? `Error ${response.status}`);
+    throw new Error(payload.message ?? `Error ${response.status} en ${endpoint}`);
   }
 
   return response.json() as Promise<T>;

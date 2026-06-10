@@ -530,7 +530,18 @@ export default function App() {
       setCompletedLessons(authResponse.completedLessons);
       setStats(authResponse.stats);
       window.localStorage.setItem(authTokenStorageKey, authResponse.token);
-      await trackVisit(getOrCreateVisitorId(), authResponse.token);
+
+      try {
+        await trackVisit(getOrCreateVisitorId(), authResponse.token);
+      } catch (visitError) {
+        pushToast(
+          visitError instanceof Error
+            ? `Inicio de sesión correcto, pero falló analítica: ${visitError.message}`
+            : 'Inicio de sesión correcto, pero falló analítica.',
+          'warning',
+        );
+      }
+
       pushToast(`Bienvenido, ${authResponse.user.displayName}.`, 'success');
     } catch (error) {
       pushToast(
