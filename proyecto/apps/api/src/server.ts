@@ -407,10 +407,18 @@ server.get('/api/admin/metrics', async (request, reply) => {
 });
 
 try {
-  await mysqlPool.query('SELECT 1');
-  await seedGameCatalog();
   await server.listen({ port: apiPort, host: '0.0.0.0' });
+  server.log.info({ apiPort }, 'API iniciada. Verificando conexión con MySQL...');
+
+  try {
+    await mysqlPool.query('SELECT 1');
+    await seedGameCatalog();
+    server.log.info('MySQL conectado y catálogo sembrado.');
+  } catch (dbError) {
+    // No detenemos la API para poder diagnosticar desde /health y logs en producción.
+    server.log.error(dbError, 'MySQL no disponible durante el arranque.');
+  }
 } catch (error) {
-  server.log.error(error);
+  server.log.error(error, 'No se pudo iniciar el servidor HTTP.');
   process.exit(1);
 }
