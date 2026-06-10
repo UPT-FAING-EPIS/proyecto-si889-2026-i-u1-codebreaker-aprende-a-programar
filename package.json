@@ -1,0 +1,20 @@
+{
+  "name": "codebreaker",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev:web": "npm run dev --workspace web",
+    "dev:api": "npm run dev --workspace api",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "db:up": "docker compose up -d mysql",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f mysql"
+  }
+}

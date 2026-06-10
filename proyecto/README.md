@@ -8,7 +8,6 @@
 
 - **Jefferson Rosas Chambilla**
 - **Roberto Huaman Rivera**
-- **Challo Coaquera Alexsander**
 
 ## 🎯 El Proyecto
 
@@ -24,12 +23,11 @@ Aprender a programar suele sentirse como leer un manual de instrucciones infinit
 
 | Componente | Tecnología |
 | :--- | :--- |
-| **Frontend** | React.js + Tailwind CSS |
-| **Backend** | Node.js (Express) o Python (FastAPI) |
-| **Editor de Código** | Monaco Editor / CodeMirror |
-| **Ejecución de Código** | Piston API / Judge0 (Sandbox Seguro) |
-| **Base de Datos** | PostgreSQL o Supabase |
-| **Despliegue** | Vercel (Frontend) / Railway (Backend) |
+| **Frontend** | React + Vite |
+| **Backend** | Node.js + Fastify |
+| **Autenticación** | Google OAuth |
+| **Base de Datos** | Azure Database for MySQL Flexible Server |
+| **Despliegue** | Azure Static Web Apps + Azure App Service |
 
 ---
 
@@ -50,6 +48,58 @@ Aprender a programar suele sentirse como leer un manual de instrucciones infinit
 3.  **Fase 3:** Diseño de niveles iniciales para Python y PHP.
 4.  **Fase 4:** Sistema de usuarios y guardado de progreso.
 5.  **Fase 5:** Pulido de UI/UX para dispositivos móviles.
+
+---
+
+## ⚙️ Variables de entorno
+
+Crear archivo `.env` en la raíz del proyecto:
+
+```env
+MYSQL_HOST=codebreaker-mysql-prod.mysql.database.azure.com
+MYSQL_PORT=3306
+MYSQL_DATABASE=codebreaker
+MYSQL_USER=app_codebreaker
+MYSQL_PASSWORD=change_me
+MYSQL_SSL=true
+
+API_PORT=4000
+APP_JWT_SECRET=change_me_super_secret
+CORS_ORIGIN=http://localhost:5173
+GOOGLE_CLIENT_ID=change_me.apps.googleusercontent.com
+ADMIN_EMAILS=tu-correo-admin@gmail.com
+
+VITE_API_URL=http://localhost:4000
+VITE_GOOGLE_CLIENT_ID=change_me.apps.googleusercontent.com
+```
+
+---
+
+## ▶️ Ejecución local
+
+```bash
+npm install
+npm run dev:api
+npm run dev:web
+```
+
+Endpoints clave:
+
+- API health: `/health`
+- Login Google: `/api/auth/google`
+- Progreso usuario: `/api/progress/me`
+- Completar nivel: `/api/progress/complete`
+- Admin métricas: `/api/admin/metrics`
+
+---
+
+## ☁️ Deploy rápido en Azure
+
+1. **Base de datos:** usar Azure MySQL Flexible Server (ya creado).
+2. **API:** desplegar `apps/api` en Azure App Service y configurar las variables anteriores.
+3. **Web:** desplegar `apps/web` en Azure Static Web Apps con `VITE_API_URL` y `VITE_GOOGLE_CLIENT_ID`.
+4. **Google OAuth:** en Google Cloud Console agregar los dominios de producción en Authorized JavaScript origins.
+5. **Admin:** agregar correo administrador en `ADMIN_EMAILS`.
 
 ---
 

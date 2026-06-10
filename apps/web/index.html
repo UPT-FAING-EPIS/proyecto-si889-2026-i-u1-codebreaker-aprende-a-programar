@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codebreaker</title>
+    <meta
+      name="description"
+      content="Codebreaker convierte el aprendizaje de programación en una aventura interactiva para navegador."
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      (function () {
+        const storageKey = 'codebreaker_visitor_id';
+        let visitorId = null;
+
+        try {
+          visitorId = window.localStorage.getItem(storageKey);
+          if (!visitorId) {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+              visitorId = window.crypto.randomUUID();
+            } else {
+              visitorId = 'v-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            }
+            window.localStorage.setItem(storageKey, visitorId);
+          }
+        } catch (_error) {
+          visitorId = null;
+        }
+
+        const configuredOrigin = '%VITE_ANALYTICS_API_ORIGIN%';
+        const hasConfiguredOrigin = configuredOrigin && !configuredOrigin.startsWith('%VITE_');
+        const explicitEndpoint = hasConfiguredOrigin
+          ? configuredOrigin.replace(/\/$/, '') + '/api/analytics/visit'
+          : null;
+
+        const payload = {
+          visitorId,
+          page: window.location.pathname + window.location.search,
+          source: 'web',
+        };
+
+        const candidates = [];
+        if (explicitEndpoint) candidates.push(explicitEndpoint);
+        candidates.push('/api/analytics/visit');
+
+        function sendVisit(index) {
+          if (index >= candidates.length) return;
+
+          fetch(candidates[index], {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            keepalive: true,
+          }).catch(function () {
+            sendVisit(index + 1);
+          });
+        }
+
+        sendVisit(0);
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+  </html>
